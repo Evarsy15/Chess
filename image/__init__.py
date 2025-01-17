@@ -1,0 +1,1 @@
+from .chess_image import ChessImage
