@@ -38,6 +38,7 @@ class ChessImage(QObject):
     def __load_resource(self):
         self.__load_board_image()
         self.__load_piece_image()
+        self.__load_misc()
     
     def __load_board_image(self):
         __board_img_path = os.path.join(
@@ -68,3 +69,12 @@ class ChessImage(QObject):
         self.black_bishop = QPixmap(os.path.join(__piece_img_dir, 'black-bishop.png'))
         self.black_knight = QPixmap(os.path.join(__piece_img_dir, 'black-knight.png'))
         self.black_pawn   = QPixmap(os.path.join(__piece_img_dir, 'black-pawn.png'))
+    
+    def __load_misc(self):
+        __highlight_dot_img_path = os.path.join(
+            ChessImage.resource_root,
+            'misc',
+            'highlight.png'
+        )
+
+        self.highlight_dot = QPixmap(__highlight_dot_img_path)
