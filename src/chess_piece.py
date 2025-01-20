@@ -36,6 +36,34 @@ class PieceType(IntEnum):
     BLACK_KNIGHT = BLACK | KNIGHT
     BLACK_PAWN   = BLACK | PAWN
 
+    def __str__(self):
+        _str = ''
+
+        if self.value == PieceType.EMPTY:
+            _str = 'Empty       '
+            return _str
+
+        if self.value & PieceType.COLOR_MASK == PieceType.WHITE:
+            _str += 'White-'
+        else:
+            _str += 'Black-'
+        
+        match (self.value & PieceType.PIECE_MASK):
+            case PieceType.PAWN:
+                _str += 'pawn  '
+            case PieceType.KNIGHT:
+                _str += 'knight'
+            case PieceType.BISHOP:
+                _str += 'bishop'
+            case PieceType.ROOK:
+                _str += 'rook  '
+            case PieceType.QUEEN:
+                _str += 'queen '
+            case PieceType.KING:
+                _str += 'king  '
+        
+        return _str
+
 class ChessPiece(QGraphicsPixmapItem):
     # Rank / File Converter
     rankDict = { 0 : '1', 1 : '2', 2 : '3', 3 : '4', 4 : '5', 5 : '6', 6 : '7', 7 : '8' }

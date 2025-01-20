@@ -930,8 +930,8 @@ class ChessBoard(QObject):
             case (PieceType.BLACK, MoveType.CASTLING_Q):
                 _item_king = self.item_black_king
                 _item_rook = self.item_black_rook_a
-                _square_between = [(0, 1), (0, 2), (0, 3)] # Squares between king and rook
-                _square_on_path = [(0, 2), (0, 3)]         # Squares king goes through
+                _square_between = [(7, 1), (7, 2), (7, 3)] # Squares between king and rook
+                _square_on_path = [(7, 2), (7, 3)]         # Squares king goes through
         
         # Check if both king and rook haven't moved in the game
         if _item_king.isAlreadyMoved() or _item_rook.isAlreadyMoved():
@@ -997,6 +997,15 @@ class ChessBoard(QObject):
 
         # Check king's safety after given move
         return ChessBoard.__check_king_safety(move.PieceToMove().PieceColor(), _tmp_board_status)
+
+    @staticmethod
+    def __print_board_status(boardStatus : list[list[PieceType]]):
+        print("="*110)
+        for _rank in range(7, -1, -1):
+            for _file in range(8):
+                print(str(boardStatus[_rank][_file]), end = ' ')
+            print()
+        print("="*110)
 
     def __process_move(self, move : PieceMove) -> None:
         _piece_to_move         = move.PieceToMove()
@@ -1105,6 +1114,8 @@ class ChessBoard(QObject):
                 boardStatus[_old_rank][_old_file] = PieceType.EMPTY
                 boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
                 boardStatus[_aux_rank][_aux_file] = PieceType.EMPTY
+        
+        ChessBoard.__print_board_status(boardStatus)
 
     @staticmethod
     def __update_piece_status(move : PieceMove) -> None:
