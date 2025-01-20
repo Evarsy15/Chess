@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QWidget,
 )
 
 from image import ChessImage
-from .chess_piece import ChessPiece, PieceType
+from .chess_piece import ChessPiece, PieceType, MoveType, PieceMove
 
 class MoveDir(IntEnum):
     UP        = 0
@@ -20,7 +20,6 @@ class MoveDir(IntEnum):
     LEFTDOWN  = 6
     RIGHTDOWN = 7
     KNIGHT    = 8
-    PAWN      = 9
 
 class ChessBoardScene(QGraphicsScene):
     def __init__(self, resource : ChessImage,
@@ -73,6 +72,8 @@ class ChessBoard(QObject):
     
     def updateResource(self):
         pass
+
+    turnChanged = Signal(PieceType)
     
     # Chess-board event handler
     def boardClickHandler(self, pos : QPoint) -> None:
@@ -90,36 +91,16 @@ class ChessBoard(QObject):
                 else:
                     print(f'Boundary')
             
-            # Check if a player clicked available squares
             # When a square is clicked for legal move : Process as the rule
-            if (_new_rank, _new_file) in self.avail_squares:
-                # Get square information
-                _piece_on_square = self.board_status[_new_rank][_new_file]
-
-                # When the target square is empty
-                if ChessPiece.isEmpty(_piece_on_square):
-                    # Promotion
-                    if False:   # if self.__is_promotion_move(_rank, _file):
-                        pass
-                    # Castling
-                    elif False:
-                        pass
-                    # En passant
-                    elif False:
-                        pass
-                    # Basic move
-                    else:
-                        self.__move_piece(self.__piece_in_focus, None, (_new_rank, _new_file))
-
-                    # Hand player's turn
-                    self.__hand_player_turn()
+            _selected_move = self.__find_available_move(_new_rank, _new_file)
+            if _selected_move != None:
+                # Process the corresponding move
+                self.__process_move(_selected_move)
                 
-                # Otherwise : Ignore the input.
-                # ※ If you want to capture opponent piece, you have to click the corresponding piece image.
-                else:
-                    pass
+                # Hand player's turn
+                self.__hand_player_turn()
             
-            # Mouse event for freeing focus : Do nothing
+            # Otherwise : Mouse event for freeing focus : Do nothing
             else:
                 pass
 
@@ -140,50 +121,35 @@ class ChessBoard(QObject):
             
             # Opponent piece : Check if piece is clicked for capturing
             if ChessPiece.isOpponentPiece(piece.PieceType(), self.__turn):
-                _new_square = piece.Square()
-                if _new_square in self.avail_squares:
-                    # Move focused piece and capture clicked piece
-                    self.__move_piece(self.__piece_in_focus, piece, _new_square)
+                # Get square information
+                _new_rank, _new_file = piece.Square()
 
-                    # Save current move
-                    
+                # When a square is clicked for legal move : Process as the rule
+                _selected_move = self.__find_available_move(_new_rank, _new_file)
+                if _selected_move != None:
+                    # Process the corresponding move on the board
+                    self.__process_move(_selected_move)
+                
                     # Hand player's turn
                     self.__hand_player_turn()
                     
                 # Free focus
                 self.__free_focus()
             
-            # Ally piece : Change focus of piece
+            # My piece : Change focus of piece
             else:
-                # Set focus on current piece
                 self.__set_focus_on_piece(piece)
-
-                # Get available squares to move
-                self.avail_squares = self.__get_available_squares(piece)
-                if self.debug_mode == True:
-                    print('Available Squares : ', end='')
-                    print(self.avail_squares)
-
-                # Highlight available squares
-                # TODO : implement this
         
         # Otherwise, set a focus on clicked piece if it is of current turn.
         else:
             # Check whether the piece is of current turn.
-            if piece.PieceColor() == self.__turn:
-                # Get square information
-                _rank, _file = piece.Square()
-            
-                # Sanity check
-                if piece.PieceType() != self.board_status[_rank][_file]:
-                    print(f"Error : Board Status Inconsistency")
-                    print(f"\tPiece detected at {ChessPiece.fileDict[_file]}{ChessPiece.rankDict[_rank]} square, ", end='')
-                    print(f"ChessPiece.piece_type = {piece.PieceType()}, ", end='')
-                    print(f"ChessBoard.board_status[{_rank}][{_file}] = {self.board_status[_rank][_file]}")
-                    exit()
-
-                # Set Focus on the piece
+            # If so, set focus on clicked piece.
+            if ChessPiece.isMyPiece(piece.PieceType(), self.__turn):
                 self.__set_focus_on_piece(piece)
+            
+            # Otherwise, ignore the mouse input.
+            else:
+                pass
 
     def __init_chess_piece(self):
         self.item_white_king     = ChessPiece(0, 4, PieceType.WHITE_KING,   self.resource.white_king,   'white-king')
@@ -238,10 +204,10 @@ class ChessBoard(QObject):
         self.board_scene.addItem(self.item_white_pawn_h);   self.board_scene.addItem(self.item_black_pawn_h)
     
     def __init_chess_board(self):
-        self.__turn = PieceType.WHITE         # Turn
-        self.__is_in_focus = False            # Focus
-        self.__piece_in_focus = None          # Piece in Focus
-        self.__last_move = [None, None, None] # Last move (Piece, Old_Square, New_Square)
+        self.__turn = PieceType.WHITE      # Turn
+        self.__is_in_focus = False         # Focus
+        self.__piece_in_focus = None       # Piece in Focus
+        self.__move_history : list[PieceMove] = [] # Sequence of piece moves
         self.board_status = [
             [PieceType.WHITE_ROOK, PieceType.WHITE_KNIGHT, PieceType.WHITE_BISHOP, PieceType.WHITE_QUEEN, 
              PieceType.WHITE_KING, PieceType.WHITE_BISHOP, PieceType.WHITE_KNIGHT, PieceType.WHITE_ROOK],
@@ -260,94 +226,423 @@ class ChessBoard(QObject):
             [PieceType.BLACK_ROOK, PieceType.BLACK_KNIGHT, PieceType.BLACK_BISHOP, PieceType.BLACK_QUEEN, 
              PieceType.BLACK_KING, PieceType.BLACK_BISHOP, PieceType.BLACK_KNIGHT, PieceType.BLACK_ROOK]
         ]
-        
+
     def __connect_signal_and_slot(self):
         self.board_view.boardClicked.connect(self.boardClickHandler)
         self.board_view.pieceClicked.connect(self.pieceClickHandler)
     
+    @staticmethod
+    def __check_king_safety(turn : PieceType, boardStatus : list[list[PieceType]]) -> bool:
+        # Find the square of king
+        _king_rank, _king_file = -1, -1
+        for _rank in range(8):
+            for _file in range(8):
+                _piece_on_square = boardStatus[_rank][_file]
+                if ChessPiece.getPieceColor(_piece_on_square) == turn and \
+                   ChessPiece.getPieceKind(_piece_on_square) == PieceType.KING:
+                    _king_rank, _king_file = _rank, _file
+                    break
+        
+        # Sanity check : King's existence
+        if (_king_rank, _king_file) == (-1, -1):
+            print(f'ChessBoard.__check_king_safety()')
+            print(f'Error : Inexistence of King')
+            exit()
+        
+        # Check if there is an opponent piece that attacks our king
+        _is_king_on_attack = False
+
+        # 1. UP
+        _rank, _file = _king_rank + 1, _king_file
+        _dist = 1
+        while _rank < 8:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+            
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _rank += 1; _dist += 1
+                continue
+
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First meet by opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.ROOK, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 2. DOWN
+        _rank, _file = _king_rank - 1, _king_file
+        _dist = 1
+        while _rank >= 0:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+            
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _rank -= 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First meet by opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.ROOK, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 3. LEFT
+        _rank, _file = _king_rank, _king_file - 1
+        _dist = 1
+        while _file >= 0:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+            
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _file -= 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First meet by opponent piece : Check if the piece can attack the king, then break
+            else:
+                _attackable_piece = [PieceType.ROOK, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 4. RIGHT
+        _rank, _file = _king_rank, _king_file + 1
+        _dist = 1
+        while _file < 8:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _file += 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First meet by opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.ROOK, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 5. LEFT-UP
+        _rank, _file = _king_rank + 1, _king_file - 1
+        _dist = 1
+        while _rank < 8 and _file >= 0:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _rank += 1; _file -= 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First piece meet is opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.BISHOP, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                    if turn == PieceType.WHITE:
+                        _attackable_piece.append(PieceType.PAWN)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 6. RIGHT-UP
+        _rank, _file = _king_rank + 1, _king_file + 1
+        _dist = 1
+        while _rank < 8 and _file < 8:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _rank += 1; _file += 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First piece meet is opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.BISHOP, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                    if turn == PieceType.WHITE: # Pawn can attack
+                        _attackable_piece.append(PieceType.PAWN)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 7. LEFT-DOWN
+        _rank, _file = _king_rank - 1, _king_file - 1
+        _dist = 1
+        while _rank >= 0 and _file >= 0:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _rank -= 1; _file -= 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First piece meet is opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.BISHOP, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                    if turn == PieceType.BLACK: # Pawn can attack
+                        _attackable_piece.append(PieceType.PAWN)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 8. RIGHT-DOWN
+        _rank, _file = _king_rank - 1, _king_file + 1
+        _dist = 1
+        while _rank >= 0 and _file < 0:
+            # Get square information
+            _piece_on_path = boardStatus[_rank][_file]
+
+            # Empty square : Keep going
+            if ChessPiece.isEmpty(_piece_on_path):
+                _rank -= 1; _file += 1; _dist += 1
+                continue
+            
+            # Blocked by ally piece : Break
+            elif ChessPiece.isMyPiece(_piece_on_path, turn):
+                break
+            
+            # First piece meet is opponent piece : Check if the piece can attack the king
+            else:
+                _attackable_piece = [PieceType.BISHOP, PieceType.QUEEN]
+                if _dist == 1: # King can attack
+                    _attackable_piece.append(PieceType.KING)
+                    if turn == PieceType.BLACK: # Pawn can attack
+                        _attackable_piece.append(PieceType.PAWN)
+                
+                if ChessPiece.getPieceKind(_piece_on_path) in _attackable_piece:
+                    _is_king_on_attack = True
+                
+                break
+        
+        # 9. KNIGHT
+        for leap in [(-2, 1), (-1, 2), (1, 2), (2, 1),
+                     (2, -1), (1, -2), (-1, -2), (-2, -1)]:
+            _rank = _king_rank + leap[0]
+            _file = _king_file + leap[1]
+                    
+            # Check if square is valid
+            if 0 <= _rank and _rank < 8 and 0 <= _file and _file < 8:
+                # Get square information
+                _piece_on_square = boardStatus[_rank][_file]
+                
+                # Check if the square is of opponent knight
+                if ChessPiece.isOpponentPiece(_piece_on_square, turn) and \
+                   ChessPiece.getPieceKind(_piece_on_square) == PieceType.KNIGHT:
+                    _is_king_on_attack = True
+        
+        return (not _is_king_on_attack)
+
     def __free_focus(self) -> None:
         self.__is_in_focus = False
         self.__piece_in_focus = None
 
-    def __get_available_squares(self, piece : ChessPiece) -> list[tuple[int, int]]:
-        # Get piece information
-        _piece_type       = piece.PieceType()
+    def __find_available_move(self, rank : int, file : int) -> PieceMove | None:
+        if self.__is_in_focus == False:
+            return None
+        
+        # Fast detection of boundary input
+        if (rank, file) == (-1, -1):
+            return None
+        
+        # Check if there exists available move with given destination square
+        for _move in self.avail_moves:
+            if (rank, file) == _move.NewSquare():
+                return _move
+        
+        return None
+
+    def __get_available_moves(self, piece : ChessPiece) -> None:
+        _color = piece.PieceColor()
+        _kind  = piece.PieceKind()
+        _rank, _file = piece.Square()
         _is_already_moved = piece.isAlreadyMoved()
-        _rank, _file      = piece.Square()
 
-        # Sanity check
-        if _piece_type != self.board_status[_rank][_file]:
-            print(f"Error : Board Status Inconsistency")
-            print(f"\tPiece detected at {ChessPiece.fileDict[_file]}{ChessPiece.rankDict[_rank]} square, ", end='')
-            print(f"ChessPiece.piece_type = {_piece_type}, ", end='')
-            print(f"ChessBoard.board_status[{_rank}][{_file}] = {self.board_status[_rank][_file]}")
-            exit()
+        _cand_sqr = []
+        _avail_moves : list[PieceMove] = []
 
-        # Get logically available squares with respect to the piece's movement
-        _candidate_squares = self.__get_candidate_squares(_piece_type, _is_already_moved, _rank, _file)
-
-        # Detect invalid movement with respect to king's safety
-        # _avail_squares = self.__choose_legal_moves(_candidate_squares)
-
-        return _candidate_squares # _avail_squares
-
-    def __get_candidate_squares(self, piecetype : PieceType, 
-                                      is_already_moved : bool,
-                                      rank : int, file : int) -> list[tuple[int, int]]:
-        _color = ChessPiece.getPieceColor(piecetype)
-        _kind  = ChessPiece.getPieceKind (piecetype)
-        _candidate_square = []
-
+        # Basic moves
         match _kind:
             case PieceType.PAWN:
                 # Pawn's movement
-                _candidate_square.extend(self.__get_squares_pawn(_color, is_already_moved, rank, file))
+                _cand_sqr.extend(self.__get_squares_pawn(_color, _is_already_moved, _rank, _file))
             
             case PieceType.KNIGHT:
                 # Knight's movement
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.KNIGHT,    _color, rank, file, 2))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.KNIGHT,    _color, _rank, _file, 2))
             
             case PieceType.BISHOP:
                 # Bishop's movement : Move any distance diagonally
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFTUP,    _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHTUP,   _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFTDOWN,  _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHTDOWN, _color, rank, file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFTUP,    _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHTUP,   _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFTDOWN,  _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHTDOWN, _color, _rank, _file, 8))
             
             case PieceType.ROOK:
                 # Rook's movement : Move any distance linearly
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.UP,        _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.DOWN,      _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFT,      _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHT,     _color, rank, file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.UP,        _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.DOWN,      _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFT,      _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHT,     _color, _rank, _file, 8))
             
             case PieceType.QUEEN:
                 # Queen's movement : Move any distance with any direction
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.UP,        _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.DOWN,      _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFT,      _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHT,     _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFTUP,    _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHTUP,   _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFTDOWN,  _color, rank, file, 8))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHTDOWN, _color, rank, file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.UP,        _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.DOWN,      _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFT,      _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHT,     _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFTUP,    _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHTUP,   _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFTDOWN,  _color, _rank, _file, 8))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHTDOWN, _color, _rank, _file, 8))
             
             case PieceType.KING:
                 # King's basic movement : Move one square with any direction
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.UP,        _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.DOWN,      _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFT,      _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHT,     _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFTUP,    _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHTUP,   _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.LEFTDOWN,  _color, rank, file, 1))
-                _candidate_square.extend(self.__get_squares_on_path(MoveDir.RIGHTDOWN, _color, rank, file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.UP,        _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.DOWN,      _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFT,      _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHT,     _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFTUP,    _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHTUP,   _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.LEFTDOWN,  _color, _rank, _file, 1))
+                _cand_sqr.extend(self.__get_squares_on_path(MoveDir.RIGHTDOWN, _color, _rank, _file, 1))
 
-                # Castling : King's special movement
-                # TODO : implement this part
-                
-        return _candidate_square
+        # Distinguish legal moves
+        for _cand_rank, _cand_file in _cand_sqr:
+            # Candidate Move
+            _cand_move = PieceMove(
+                piece, self.__get_item_from_square(_cand_rank, _cand_file), None, 
+                MoveType.BASIC,
+                (_rank, _file), (_cand_rank, _cand_file), None
+            )
 
+            # Check if the candidate move is legal (in terms of king's safety)
+            if self.__is_legal_move(_cand_move):
+                _avail_moves.append(_cand_move)
+        
+        # Handle special moves
+        # Castling
+        if _kind == PieceType.KING:
+            # King-side
+            if self.__is_castling_available(_color, MoveType.CASTLING_K):
+                print("Castling Available")
+
+                _rook = self.item_white_rook_h if _color == PieceType.WHITE else \
+                        self.item_black_rook_h
+                _rook_rank, _rook_file = _rook.Square()
+
+                _kingside_castling_move = PieceMove(
+                    piece, None, _rook,
+                    MoveType.CASTLING_K,
+                    (_rank, _file), (_rank, _file+2), [(_rook_rank, _rook_file), (_rank, _file+1)]
+                )
+                _avail_moves.append(_kingside_castling_move)
+            
+            # Queen-side
+            if self.__is_castling_available(_color, MoveType.CASTLING_Q):
+                _rook = self.item_white_rook_a if _color == PieceType.WHITE else \
+                        self.item_black_rook_a
+                _rook_rank, _rook_file = _rook.Square()
+
+                _queenside_castling_move = PieceMove(
+                    piece, None, _rook,
+                    MoveType.CASTLING_Q,
+                    (_rank, _file), (_rank, _file-2), [(_rook_rank, _rook_file), (_rook_rank, _file-1)]
+                )
+                _avail_moves.append(_queenside_castling_move)
+        
+        # En passant
+        if _kind == PieceType.PAWN:
+            if self.__is_en_passant_available(_color, _rank, _file):
+                _pawn_in_capture = self.__move_history[-1].PieceToMove()
+                _pawn_rank, _pawn_file = _pawn_in_capture.Square()
+                _en_passant_move = PieceMove(
+                    piece, _pawn_in_capture, None,
+                    MoveType.EN_PASSANT,
+                    (_rank, _file), (_rank+1, _pawn_file), [(_pawn_rank, _pawn_file)]
+                )
+
+                if self.__is_legal_move(_en_passant_move):
+                    _avail_moves.append(_en_passant_move)
+
+        self.avail_moves = _avail_moves
+        
+        for _move in self.avail_moves:
+            print(_move.NewSquare(), end=' | ')
+        print()
+
+    def __get_item_from_square(self, rank : int, file : int) -> ChessPiece | None:
+        # if board is not reversed
+        _pos = QPoint( (file * 100 + 50), ((7 - rank) * 100 + 45))
+        _item = self.board_view.itemAt(_pos)
+
+        # Check if there exists a piece on the square
+        if isinstance(_item, ChessPiece):
+            return _item
+        else:
+            return None
+    
     @staticmethod
     def __get_square_from_pos(pos : QPoint) -> tuple[int, int]:
         # Get coordinate of mouse-event 
@@ -601,44 +896,155 @@ class ChessBoard(QObject):
 
     def __hand_player_turn(self) -> None:
         self.__turn = PieceType.BLACK if self.__turn == PieceType.WHITE else PieceType.WHITE
+    
+    def __highlight_available_moves(self) -> None:
+        # Unimplemented
+        for _move in self.avail_moves:
+            _rank, _file = _move.NewSquare()
 
-    def __move_piece(self, pieceToMove : ChessPiece, 
-                           pieceToBeCaptured : ChessPiece | None,
-                           newsquare : tuple[int, int]) -> None:
-        # Animated movement
-        _old_rank, _old_file = pieceToMove.Square()
-        _new_rank, _new_file = newsquare
+
+    def __is_castling_available(self, turn : PieceType, side : MoveType):
+        match (turn, side):
+            # White, King-side Castling
+            case (PieceType.WHITE, MoveType.CASTLING_K):
+                _item_king = self.item_white_king
+                _item_rook = self.item_white_rook_h
+                _square_between = [(0, 5), (0, 6)] # Squares between king and rook
+                _square_on_path = [(0, 5), (0, 6)] # Squares king goes through
+
+            # White, Queen-side Castling
+            case (PieceType.WHITE, MoveType.CASTLING_Q):
+                _item_king = self.item_white_king
+                _item_rook = self.item_white_rook_a
+                _square_between = [(0, 1), (0, 2), (0, 3)] # Squares between king and rook
+                _square_on_path = [(0, 2), (0, 3)]         # Squares king goes through
+            
+            # Black, King-side Castling
+            case (PieceType.BLACK, MoveType.CASTLING_K):
+                _item_king = self.item_black_king
+                _item_rook = self.item_black_rook_h
+                _square_between = [(7, 5), (7, 6)] # Squares between king and rook
+                _square_on_path = [(7, 5), (7, 6)] # Squares king goes through
+            
+            # Black, Queen-side Castling
+            case (PieceType.BLACK, MoveType.CASTLING_Q):
+                _item_king = self.item_black_king
+                _item_rook = self.item_black_rook_a
+                _square_between = [(0, 1), (0, 2), (0, 3)] # Squares between king and rook
+                _square_on_path = [(0, 2), (0, 3)]         # Squares king goes through
+        
+        # Check if both king and rook haven't moved in the game
+        if _item_king.isAlreadyMoved() or _item_rook.isAlreadyMoved():
+            if self.debug_mode == True:
+                print('King or Rook is moved at least once.')
+            return False
+        
+        # Check if all squares between king and rook are empty.
+        for _rank, _file in _square_between:
+            if self.board_status[_rank][_file] != PieceType.EMPTY:
+                if self.debug_mode == True:
+                    print('There is at least one piece between King and Rook.')
+                return False
+
+        # Check if king is currently on attack.
+        if not ChessBoard.__check_king_safety(turn, self.board_status):
+            return False
+        
+        # Check if the castling path is under attack.
+        _tmp_board_status = deepcopy(self.board_status)
+        _old_rank, _old_file = _item_king.Square()
+        for _rank, _file in _square_on_path:
+            # Temporarily change king's square
+            _tmp_board_status[_old_rank][_old_file] = PieceType.EMPTY
+            _tmp_board_status[_rank][_file] = _item_king.PieceType()
+
+            # Check king's safety
+            if not ChessBoard.__check_king_safety(turn, _tmp_board_status):
+                return False
+        
+            # Roll back _tmp_board_status
+            _tmp_board_status[_old_rank][_old_file] = _item_king.PieceType()
+            _tmp_board_status[_rank][_file] = PieceType.EMPTY
+        
+        # If current board status passed all of them, then Castling is available.
+        return True
+
+    def __is_en_passant_available(self, turn : PieceType,
+                                        rank : int, file : int):
+        # Get En passant rank
+        _en_passant_rank = 4 if turn == PieceType.WHITE else 3
+
+        # When there is no move done in the game
+        if len(self.__move_history) == 0:
+            return False
+        
+        # Get last moved piece
+        _piece_last_moved = self.__move_history[-1].PieceToMove()
+
+        # Check if last moved piece is opponent's double-leaped pawn right next to current pawn
+        if _piece_last_moved.PieceKind() == PieceType.PAWN:
+            _pawn_rank, _pawn_file = _piece_last_moved.Square()
+            if rank == _en_passant_rank and _pawn_rank == _en_passant_rank and \
+                abs(file - _pawn_file) == 1:
+                return True
+        
+        return False
+
+    def __is_legal_move(self, move : PieceMove) -> bool:
+        # Temporarily update board status to determine king's safety
+        _tmp_board_status = deepcopy(self.board_status)
+        ChessBoard.__update_board_status(move, _tmp_board_status)
+
+        # Check king's safety after given move
+        return ChessBoard.__check_king_safety(move.PieceToMove().PieceColor(), _tmp_board_status)
+
+    def __process_move(self, move : PieceMove) -> None:
+        _piece_to_move         = move.PieceToMove()
+        _old_rank, _old_file   = move.OldSquare()
+        _new_rank, _new_file   = move.NewSquare()
         _old_pos_x, _old_pos_y = ChessPiece.getPosFromSquare(_old_rank, _old_file)
         _new_pos_x, _new_pos_y = ChessPiece.getPosFromSquare(_new_rank, _new_file)
-        
-        if self.debug_mode == True:
-            print(f'oldpos = ({_old_pos_x}, {_old_pos_y}), newpos = ({_new_pos_x}, {_new_pos_y})')
 
-        timeline = QTimeLine(200) # 200 ms
+        timeline = QTimeLine(100) # 100 ms
         timeline.setUpdateInterval(1)   # 1 ms
 
         animation = QGraphicsItemAnimation(self)
-        animation.setItem(pieceToMove)
+        animation.setItem(_piece_to_move)
         animation.setTimeLine(timeline)
-        for i in range(26):
-            step = i / 25
+        for i in range(101):
+            step = i / 100
             animation.setPosAt(step, QPointF(
                 _old_pos_x * (1 - step) + _new_pos_x * step,
                 _old_pos_y * (1 - step) + _new_pos_y * step
             ))
+        
+        # Castling : Move Rook simultaneously
+        if move.MoveType() in [MoveType.CASTLING_K, MoveType.CASTLING_Q]:
+            _piece_aux = move.PieceAux()
+            _aux_old_rank, _aux_old_file = move.AuxSquare()[0]
+            _aux_new_rank, _aux_new_file = move.AuxSquare()[1]
+            _aux_old_pos_x, _aux_old_pos_y = ChessPiece.getPosFromSquare(_aux_old_rank, _aux_old_file)
+            _aux_new_pos_x, _aux_new_pos_y = ChessPiece.getPosFromSquare(_aux_new_rank, _aux_new_file)
 
+            aux_animation = QGraphicsItemAnimation(self)
+            aux_animation.setItem(_piece_aux)
+            aux_animation.setTimeLine(timeline) # Share same timeline
+
+            for i in range(101):
+                step = i / 100
+                aux_animation.setPosAt(step, QPointF(
+                    _aux_old_pos_x * (1 - step) + _aux_new_pos_x * step,
+                    _aux_old_pos_y * (1 - step) + _aux_new_pos_y * step
+                ))
+        
         timeline.start()
-
-        # Disable captured piece
-        if pieceToBeCaptured != None:
-            pieceToBeCaptured.setVisible(False)
+        
+        # Save the move into move history
+        self.__move_history.append(move)
 
         # Update piece & board status
-        pieceToMove.setMoved()
-        pieceToMove.setSquare(_new_rank, _new_file)
-        self.board_status[_old_rank][_old_file] = PieceType.EMPTY
-        self.board_status[_new_rank][_new_file] = pieceToMove.PieceType()
-
+        ChessBoard.__update_piece_status(move)
+        ChessBoard.__update_board_status(move, self.board_status)
 
     def __reset_chess_board(self) -> None:
         # Unimplemented
@@ -649,14 +1055,70 @@ class ChessBoard(QObject):
         self.__is_in_focus = True
         self.__piece_in_focus = piece
 
-        # Get available squares to move
-        self.avail_squares = self.__get_available_squares(piece)
-        if self.debug_mode == True:
-            print('Available Squares : ', end='')
-            print(self.avail_squares)
+        # Get available moves
+        self.__get_available_moves(piece)
 
         # Highlight available squares
-        # TODO : implement this
+        self.__highlight_available_moves()
+    
+    @staticmethod
+    def __update_board_status(move : PieceMove, boardStatus : list[list[PieceType]]) -> None:
+        match move.MoveType():
+            # Basic move
+            case MoveType.BASIC:
+                _old_rank, _old_file = move.OldSquare()
+                _new_rank, _new_file = move.NewSquare()
+                
+                boardStatus[_old_rank][_old_file] = PieceType.EMPTY
+                boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
+            
+            # Castling
+            case MoveType.CASTLING_K | MoveType.CASTLING_Q:
+                _aux_square = move.AuxSquare()
+                if _aux_square == None:
+                    print(f'ChessBoard.__update_board_status()')
+                    print(f'Error : Castling move has NoneType auxiliary square')
+                    exit()
+                
+                _king_old_rank, _king_old_file = move.OldSquare()
+                _king_new_rank, _king_new_file = move.NewSquare()
+                _rook_old_rank, _rook_old_file = _aux_square[0]
+                _rook_new_rank, _rook_new_file = _aux_square[1]
 
-if __name__ == '__main__':
-    exit(0)
+                boardStatus[_king_old_rank][_king_old_file] = PieceType.EMPTY
+                boardStatus[_king_new_rank][_king_new_file] = move.PieceToMove().PieceType()
+                boardStatus[_rook_old_rank][_rook_old_file] = PieceType.EMPTY
+                boardStatus[_rook_new_rank][_rook_new_file] = move.PieceAux().PieceType()
+            
+            # En passant
+            case MoveType.EN_PASSANT:
+                _aux_square = move.AuxSquare()
+                if _aux_square == None:
+                    print(f'ChessBoard.__update_board_status()')
+                    print(f'Error : En passant move has NoneType auxiliary square')
+                    exit()
+                
+                _old_rank, _old_file = move.OldSquare()
+                _new_rank, _new_file = move.NewSquare()
+                _aux_rank, _aux_file = _aux_square[0]
+
+                boardStatus[_old_rank][_old_file] = PieceType.EMPTY
+                boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
+                boardStatus[_aux_rank][_aux_file] = PieceType.EMPTY
+
+    @staticmethod
+    def __update_piece_status(move : PieceMove) -> None:
+        _piece_to_move = move.PieceToMove()
+        _new_rank, _new_file = move.NewSquare()
+        _piece_to_move.setMoved()
+        _piece_to_move.setSquare(_new_rank, _new_file)
+
+        _piece_in_capture = move.PieceInCapture()
+        if _piece_in_capture != None:
+            _piece_in_capture.setVisible(False)
+        
+        if move.MoveType() in [MoveType.CASTLING_K, MoveType.CASTLING_Q]:
+            _piece_aux = move.PieceAux()
+            _aux_new_rank, _aux_new_file = move.AuxSquare()[1]
+            _piece_aux.setMoved()
+            _piece_aux.setSquare(_aux_new_rank, _aux_new_file)

@@ -115,11 +115,12 @@ class ChessPiece(QGraphicsPixmapItem):
         return (piecetype == PieceType.EMPTY)
 
     @staticmethod
+    def isMyPiece(piecetype : PieceType, turn : PieceType) -> bool:
+        return (ChessPiece.getPieceColor(piecetype) == turn)
+    
+    @staticmethod
     def isOpponentPiece(piecetype : PieceType, turn : PieceType) -> bool:
-        if turn == PieceType.WHITE:
-            return ChessPiece.isBlackPiece(piecetype)
-        else:
-            return ChessPiece.isWhitePiece(piecetype)
+        return (ChessPiece.getPieceColor(piecetype) != turn)
     
     @staticmethod
     def getPosFromSquare(rank : int, file : int) -> tuple[float, float]:
@@ -128,5 +129,61 @@ class ChessPiece(QGraphicsPixmapItem):
 
     def __update_pos(self) -> None:
         self.setPos(QPoint(self.__file * 100, (7 - self.__rank) * 100))
+
+class MoveType(IntEnum):
+    BASIC      = 0   # Any move except special moves
+    PROMOTION  = 1   # Promotion
+    CASTLING_K = 2   # Castling (King-side)
+    CASTLING_Q = 3   # Castling (Queen-side)
+    EN_PASSANT = 4   # En passant
+
+class PieceMove:
+    def __init__(self, pieceToMove    : ChessPiece,
+                       pieceInCapture : ChessPiece | None = None,
+                       pieceAux       : ChessPiece | None = None,
+                       moveType : MoveType = MoveType.BASIC,
+                       oldsqr : tuple[int, int] = (-1, -1),
+                       newsqr : tuple[int, int] = (-1, -1),
+                       auxsqr : list[tuple[int, int]] | None = None) -> None:
+        
+        self.__piece_to_move    = pieceToMove
+        self.__piece_in_capture = pieceInCapture
+        self.__piece_aux        = pieceAux
+        self.__move_type = moveType
+        self.__old_rank, self.__old_file = oldsqr
+        self.__new_rank, self.__new_file = newsqr
+        self.__aux_square = auxsqr
+
+        # Usage of Auxiliary Square List (self.__aux_square)
+        # [1] In 'En passant', Auxiliary Square List contains 
+        #     the square of to-be-captured pawn.
+        # [2] In 'Castling', Auxiliary Square List contains
+        #     old and new squares of 'auxiliary piece' rook. 
+    
+    def MoveType(self) -> MoveType:
+        return self.__move_type
+
+    def PieceToMove(self) -> ChessPiece:
+        return self.__piece_to_move
+    
+    def PieceInCapture(self) -> ChessPiece | None:
+        return self.__piece_in_capture
+
+    def PieceAux(self) -> ChessPiece | None:
+        return self.__piece_aux
+    
+    def OldSquare(self) -> tuple[int, int]:
+        return (self.__old_rank, self.__old_file)
+    
+    def NewSquare(self) -> tuple[int, int]:
+        return (self.__new_rank, self.__new_file)
+    
+    def AuxSquare(self) -> list[tuple[int, int]] | None:
+        return self.__aux_square
+    
+    @staticmethod
+    def isCastlingAvailable(turn : PieceType, boardstatus : list[list[PieceType]]) -> bool:
+        pass
+    
     
 
