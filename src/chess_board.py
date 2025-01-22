@@ -512,7 +512,7 @@ class ChessBoard(QObject):
         # 8. RIGHT-DOWN
         _rank, _file = _king_rank - 1, _king_file + 1
         _dist = 1
-        while _rank >= 0 and _file < 0:
+        while _rank >= 0 and _file < 8:
             # Get square information
             _piece_on_path = boardStatus[_rank][_file]
 
