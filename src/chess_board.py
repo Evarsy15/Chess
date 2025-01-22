@@ -41,8 +41,6 @@ class ChessBoardView(QGraphicsView):
     def mousePressEvent(self, event):
         __pos  = event.pos()
         __item = self.itemAt(__pos)
-        print(__item)
-        print(__item.parentItem())
 
         # Determine which item is clicked: piece or board.
         if isinstance(__item, ChessPiece):
@@ -78,11 +76,10 @@ class ChessBoard(QObject):
     
     def show(self):
         self.board_view.show()
-    
-    def updateResource(self):
-        pass
 
     turnChanged = Signal()
+    gameOverWin = Signal(PieceType)
+    gameOverTie = Signal()
     
     # Chess-board event handler
     def boardClickHandler(self, pos : QPoint) -> None:
@@ -109,9 +106,6 @@ class ChessBoard(QObject):
             if _selected_move != None:
                 # Process the corresponding move
                 self.__process_move(_selected_move)
-                
-                # Hand player's turn
-                self.__hand_player_turn()
             
             # Otherwise : Mouse event for freeing focus : Do nothing
             else:
@@ -146,10 +140,7 @@ class ChessBoard(QObject):
                 if _selected_move != None:
                     # Process the corresponding move on the board
                     self.__process_move(_selected_move)
-                
-                    # Hand player's turn
-                    self.__hand_player_turn()
-                    
+
                 # Free focus
                 self.__free_focus()
             
@@ -199,6 +190,10 @@ class ChessBoard(QObject):
 
         self.__promotion_mode = False
         item.setVisible(False)
+
+        # Hand the turn and check if game is over
+        self.__hand_player_turn()
+        self.__check_game_over()
 
     def __init_chess_piece(self):
         self.item_white_king     = ChessPiece(0, 4, PieceType.WHITE_KING,   self.resource, 'white-king')
@@ -251,6 +246,19 @@ class ChessBoard(QObject):
         self.board_scene.addItem(self.item_white_pawn_f);   self.board_scene.addItem(self.item_black_pawn_f)
         self.board_scene.addItem(self.item_white_pawn_g);   self.board_scene.addItem(self.item_black_pawn_g)
         self.board_scene.addItem(self.item_white_pawn_h);   self.board_scene.addItem(self.item_black_pawn_h)
+
+        self.active_white_piece = [
+            self.item_white_king,     self.item_white_queen,    self.item_white_rook_a,   self.item_white_rook_h,
+            self.item_white_bishop_c, self.item_white_bishop_f, self.item_white_knight_b, self.item_white_knight_g,
+            self.item_white_pawn_a,   self.item_white_pawn_b,   self.item_white_pawn_c,   self.item_white_pawn_d,
+            self.item_white_pawn_e,   self.item_white_pawn_f,   self.item_white_pawn_g,   self.item_white_pawn_h
+        ]
+        self.active_black_piece = [
+            self.item_black_king,     self.item_black_queen,    self.item_black_rook_a,   self.item_black_rook_h,
+            self.item_black_bishop_c, self.item_black_bishop_f, self.item_black_knight_b, self.item_black_knight_g,
+            self.item_black_pawn_a,   self.item_black_pawn_b,   self.item_black_pawn_c,   self.item_black_pawn_d,
+            self.item_black_pawn_e,   self.item_black_pawn_f,   self.item_black_pawn_g,   self.item_black_pawn_h
+        ]
     
     def __init_chess_board(self):
         self.__turn = PieceType.WHITE      # Turn
@@ -292,7 +300,76 @@ class ChessBoard(QObject):
         self.board_view.pieceClicked.connect(self.pieceClickHandler)
         self.board_view.promotionItemClicked.connect(self.promotionItemClickHandler)
         self.timeline.finished.connect(self.__process_after_move)
-    
+
+    # Methods for game management
+
+    @staticmethod
+    def __apply_move_to_board_status(move : PieceMove, boardStatus : list[list[PieceType]]) -> None:
+        match move.MoveType():
+            # Basic move
+            case MoveType.BASIC | MoveType.PROMOTION:
+                _old_rank, _old_file = move.OldSquare()
+                _new_rank, _new_file = move.NewSquare()
+                
+                boardStatus[_old_rank][_old_file] = PieceType.EMPTY
+                boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
+            
+            # Castling
+            case MoveType.CASTLING_K | MoveType.CASTLING_Q:
+                _aux_square = move.AuxSquare()
+                if _aux_square == None:
+                    print(f'ChessBoard.__apply_move_to_board_status()')
+                    print(f'Error : Castling move has NoneType auxiliary square')
+                    exit()
+                
+                _king_old_rank, _king_old_file = move.OldSquare()
+                _king_new_rank, _king_new_file = move.NewSquare()
+                _rook_old_rank, _rook_old_file = _aux_square[0]
+                _rook_new_rank, _rook_new_file = _aux_square[1]
+
+                boardStatus[_king_old_rank][_king_old_file] = PieceType.EMPTY
+                boardStatus[_king_new_rank][_king_new_file] = move.PieceToMove().PieceType()
+                boardStatus[_rook_old_rank][_rook_old_file] = PieceType.EMPTY
+                boardStatus[_rook_new_rank][_rook_new_file] = move.PieceAux().PieceType()
+            
+            # En passant
+            case MoveType.EN_PASSANT:
+                _aux_square = move.AuxSquare()
+                if _aux_square == None:
+                    print(f'ChessBoard.__apply_move_to_board_status()')
+                    print(f'Error : En passant move has NoneType auxiliary square')
+                    exit()
+                
+                _old_rank, _old_file = move.OldSquare()
+                _new_rank, _new_file = move.NewSquare()
+                _aux_rank, _aux_file = _aux_square[0]
+
+                boardStatus[_old_rank][_old_file] = PieceType.EMPTY
+                boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
+                boardStatus[_aux_rank][_aux_file] = PieceType.EMPTY
+        
+        # ChessBoard.__print_board_status(boardStatus)
+
+    def __check_game_over(self) -> None:
+        _is_check = self.__is_check_state()
+        _is_no_avail_move = self.__is_no_avail_move()
+
+        # Checkmate -> Last turn wins
+        if _is_check and _is_no_avail_move:
+            # Winner's turn
+            _winner : PieceType = self.__turn ^ PieceType.COLOR_MASK
+
+            if self.debug_mode == True:
+                _str_winner = 'White' if _winner == PieceType.WHITE else 'Black'
+                print(f'Checkmate by {_str_winner}')
+            
+            self.gameOverWin.emit(_winner)
+        # Stalemate -> Tie
+        elif (not _is_check) and _is_no_avail_move:
+            self.gameOverTie.emit()
+        else:
+            return
+
     @staticmethod
     def __check_king_safety(turn : PieceType, boardStatus : list[list[PieceType]]) -> bool:
         # Find the square of king
@@ -576,7 +653,7 @@ class ChessBoard(QObject):
         
         return None
 
-    def __get_available_moves(self, piece : ChessPiece) -> None:
+    def __get_available_moves(self, piece : ChessPiece) -> bool:
         _color = piece.PieceColor()
         _kind  = piece.PieceKind()
         _rank, _file = piece.Square()
@@ -715,19 +792,8 @@ class ChessBoard(QObject):
                     _avail_moves.append(_en_passant_move)
 
         self.avail_moves = _avail_moves
-        
-        # Show available squares on the command
-        if self.debug_mode == True:
-            if len(self.avail_moves) > 0:
-                print('Available squares : ', end='')
-                print('| ', end='')
-                for _move in self.avail_moves:
-                    _rank, _file = _move.NewSquare()
-                    _str = ChessPiece.fileDict[_file] + ChessPiece.rankDict[_rank]
-                    print(_str, end = ' | ')
-                print()
-            else:
-                print('No available move')
+
+        return (len(self.avail_moves) > 0)
 
     def __get_item_from_square(self, rank : int, file : int) -> ChessPiece | None:
         # if board is not reversed
@@ -1049,15 +1115,11 @@ class ChessBoard(QObject):
         
         # Check if both king and rook haven't moved in the game
         if _item_king.isAlreadyMoved() or _item_rook.isAlreadyMoved():
-            if self.debug_mode == True:
-                print('King or Rook is moved at least once.')
             return False
         
         # Check if all squares between king and rook are empty.
         for _rank, _file in _square_between:
             if self.board_status[_rank][_file] != PieceType.EMPTY:
-                if self.debug_mode == True:
-                    print('There is at least one piece between King and Rook.')
                 return False
 
         # Check if king is currently on attack.
@@ -1083,6 +1145,9 @@ class ChessBoard(QObject):
         # If current board status passed all of them, then Castling is available.
         return True
 
+    def __is_check_state(self):
+        return (not ChessBoard.__check_king_safety(self.__turn, self.board_status))    
+
     def __is_en_passant_available(self, turn : PieceType,
                                         rank : int, file : int):
         # Get En passant rank
@@ -1107,10 +1172,40 @@ class ChessBoard(QObject):
     def __is_legal_move(self, move : PieceMove) -> bool:
         # Temporarily update board status to determine king's safety
         _tmp_board_status = deepcopy(self.board_status)
-        ChessBoard.__update_board_status(move, _tmp_board_status)
+        ChessBoard.__apply_move_to_board_status(move, _tmp_board_status)
 
         # Check king's safety after given move
         return ChessBoard.__check_king_safety(move.PieceToMove().PieceColor(), _tmp_board_status)
+
+    def __is_no_avail_move(self) -> bool:
+        _avail_move_exist = False
+
+        # White
+        if self.__turn == PieceType.WHITE:
+            for _piece in self.active_white_piece:
+                _avail_move_exist |= self.__get_available_moves(_piece)
+        # Black
+        elif self.__turn == PieceType.BLACK:
+            for _piece in self.active_black_piece:
+                _avail_move_exist |= self.__get_available_moves(_piece)
+        # Invalid case
+        else:
+            print(f'ChessBoard.__is_no_avail_move() : ')
+            print(f'Invalid \'turn\' Detected : {self.__turn}')
+            exit()
+        
+        return (not _avail_move_exist)
+    
+    def __print_active_piece(self) -> None:
+        print('White\'s active pieces : \n| ', end='')
+        for _piece in self.active_white_piece:
+            print(_piece.ObjectName(), end=' | ')
+        print()
+
+        print('Black\'s active pieces : \n| ', end='')
+        for _piece in self.active_black_piece:
+            print(_piece.ObjectName(), end=' | ')
+        print()
 
     @staticmethod
     def __print_board_status(boardStatus : list[list[PieceType]]):
@@ -1121,6 +1216,48 @@ class ChessBoard(QObject):
             print()
         print("="*110)
 
+    def __process_after_move(self) -> None:
+        _last_move = self.__move_history[-1]
+        _piece_to_move = _last_move.PieceToMove()
+
+        # Update piece & board status
+        self.__update_piece_status(_last_move)
+        self.__update_board_status(_last_move)
+
+        if self.debug_mode == True:
+            ChessBoard.__print_board_status(self.board_status)
+            self.__print_active_piece()
+
+        # Clear Animation(s)
+        self.animation.clear()
+        if _last_move.MoveType() in [MoveType.CASTLING_K, MoveType.CASTLING_Q]:
+            self.aux_animation.clear()
+        
+        # Promotion
+        if _last_move.MoveType() == MoveType.PROMOTION:
+            self.__promotion_mode == True
+
+            _rank, _file = _piece_to_move.Square()
+            if True: # If promotion item is vertical
+                if _piece_to_move.PieceColor() == PieceType.WHITE:
+                    # If board is not reversed
+                    self.item_promotion_white.setPos(_file * 100, 0)
+                    self.item_promotion_white.setVisible(True)
+                elif _piece_to_move.PieceColor() == PieceType.BLACK:
+                    # If board is not reversed
+                    self.item_promotion_black.setPos(_file * 100, 400)
+                    self.item_promotion_black.setVisible(True)
+                else:
+                    exit()
+
+            # For the promotion case, [hand turn & check game-over] must be done after promotion.
+            # Hand the remain process to 'promotionItemClickHandler()'.
+            return
+        
+        # Hand the turn and check if game is over
+        self.__hand_player_turn()
+        self.__check_game_over()
+    
     def __process_move(self, move : PieceMove) -> None:
         _piece_to_move         = move.PieceToMove()
         _old_rank, _old_file   = move.OldSquare()
@@ -1154,48 +1291,12 @@ class ChessBoard(QObject):
                     _aux_old_pos_x * (1 - step) + _aux_new_pos_x * step,
                     _aux_old_pos_y * (1 - step) + _aux_new_pos_y * step
                 ))
+        
         # Save the move into move history
         self.__move_history.append(move)
 
         # Start timeline : Run animation
         self.timeline.start()
-
-        # Update piece & board status
-        ChessBoard.__update_piece_status(move)
-        ChessBoard.__update_board_status(move, self.board_status)
-
-        if self.debug_mode == True:
-            ChessBoard.__print_board_status(self.board_status)
-
-    def __process_after_move(self) -> None:
-        _last_move = self.__move_history[-1]
-        _piece_to_move = _last_move.PieceToMove()
-
-        # Update piece & board status
-        ChessBoard.__update_piece_status(_last_move)
-        ChessBoard.__update_board_status(_last_move, self.board_status)
-
-        # Promotion
-        if _last_move.MoveType() == MoveType.PROMOTION:
-            self.__promotion_mode == True
-
-            _rank, _file = _piece_to_move.Square()
-            if True: # If promotion item is vertical
-                if _piece_to_move.PieceColor() == PieceType.WHITE:
-                    # If board is not reversed
-                    self.item_promotion_white.setPos(_file * 100, 0)
-                    self.item_promotion_white.setVisible(True)
-                elif _piece_to_move.PieceColor() == PieceType.BLACK:
-                    # If board is not reversed
-                    self.item_promotion_black.setPos(_file * 100, 400)
-                    self.item_promotion_black.setVisible(True)
-                else:
-                    exit()
-        
-        # Clear Animation(s)
-        self.animation.clear()
-        if _last_move.MoveType() in [MoveType.CASTLING_K, MoveType.CASTLING_Q]:
-            self.aux_animation.clear()
 
     def __remove_highlight(self) -> None:
         for _item in self.__item_highlight:
@@ -1206,9 +1307,13 @@ class ChessBoard(QObject):
     def __reset_chess_board(self) -> None:
         # Unimplemented
         pass
+
+    def __reverse_chess_board(self) -> None:
+        # Unimplemented
+        pass
     
     def __set_focus_on_piece(self, piece : ChessPiece) -> None:
-        # Free previous highlight moves
+        # Remove previous highlight moves
         self.__remove_highlight()
 
         # Set focus on the piece
@@ -1218,58 +1323,26 @@ class ChessBoard(QObject):
         # Get available moves
         self.__get_available_moves(piece)
 
+        # Show available squares on the command
+        if self.debug_mode == True:
+            if len(self.avail_moves) > 0:
+                print('Available squares : ', end='')
+                print('| ', end='')
+                for _move in self.avail_moves:
+                    _rank, _file = _move.NewSquare()
+                    _str = ChessPiece.fileDict[_file] + ChessPiece.rankDict[_rank]
+                    print(_str, end = ' | ')
+                print()
+            else:
+                print('No available move')
+
         # Highlight available squares
         self.__highlight_available_moves()
     
-    @staticmethod
-    def __update_board_status(move : PieceMove, boardStatus : list[list[PieceType]]) -> None:
-        match move.MoveType():
-            # Basic move
-            case MoveType.BASIC | MoveType.PROMOTION:
-                _old_rank, _old_file = move.OldSquare()
-                _new_rank, _new_file = move.NewSquare()
-                
-                boardStatus[_old_rank][_old_file] = PieceType.EMPTY
-                boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
-            
-            # Castling
-            case MoveType.CASTLING_K | MoveType.CASTLING_Q:
-                _aux_square = move.AuxSquare()
-                if _aux_square == None:
-                    print(f'ChessBoard.__update_board_status()')
-                    print(f'Error : Castling move has NoneType auxiliary square')
-                    exit()
-                
-                _king_old_rank, _king_old_file = move.OldSquare()
-                _king_new_rank, _king_new_file = move.NewSquare()
-                _rook_old_rank, _rook_old_file = _aux_square[0]
-                _rook_new_rank, _rook_new_file = _aux_square[1]
+    def __update_board_status(self, move : PieceMove) -> None:
+        ChessBoard.__apply_move_to_board_status(move, self.board_status)
 
-                boardStatus[_king_old_rank][_king_old_file] = PieceType.EMPTY
-                boardStatus[_king_new_rank][_king_new_file] = move.PieceToMove().PieceType()
-                boardStatus[_rook_old_rank][_rook_old_file] = PieceType.EMPTY
-                boardStatus[_rook_new_rank][_rook_new_file] = move.PieceAux().PieceType()
-            
-            # En passant
-            case MoveType.EN_PASSANT:
-                _aux_square = move.AuxSquare()
-                if _aux_square == None:
-                    print(f'ChessBoard.__update_board_status()')
-                    print(f'Error : En passant move has NoneType auxiliary square')
-                    exit()
-                
-                _old_rank, _old_file = move.OldSquare()
-                _new_rank, _new_file = move.NewSquare()
-                _aux_rank, _aux_file = _aux_square[0]
-
-                boardStatus[_old_rank][_old_file] = PieceType.EMPTY
-                boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
-                boardStatus[_aux_rank][_aux_file] = PieceType.EMPTY
-        
-        # ChessBoard.__print_board_status(boardStatus)
-
-    @staticmethod
-    def __update_piece_status(move : PieceMove) -> None:
+    def __update_piece_status(self, move : PieceMove) -> None:
         _piece_to_move = move.PieceToMove()
         _new_rank, _new_file = move.NewSquare()
         _piece_to_move.setMoved()
@@ -1277,7 +1350,16 @@ class ChessBoard(QObject):
 
         _piece_in_capture = move.PieceInCapture()
         if _piece_in_capture != None:
+            # Set invisible
             _piece_in_capture.setVisible(False)
+
+            # Remove from active piece list
+            if _piece_in_capture.PieceColor() == PieceType.WHITE:
+                self.active_white_piece.remove(_piece_in_capture)
+            elif _piece_in_capture.PieceColor() == PieceType.BLACK:
+                self.active_black_piece.remove(_piece_in_capture)
+            else:
+                exit()
         
         if move.MoveType() in [MoveType.CASTLING_K, MoveType.CASTLING_Q]:
             _piece_aux = move.PieceAux()

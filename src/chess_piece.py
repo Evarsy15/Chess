@@ -76,14 +76,20 @@ class ChessPiece(QGraphicsPixmapItem):
                        objname : str = '',
                        parent : QGraphicsItem | None = None):
         super().__init__(parent)
-        self.__rank = rank
-        self.__file = file
-        self.__piece_type = piecetype
-        self.__resource = resource
-        self.__object_name = objname
-        self.__is_already_moved = False
+        self.__rank : int = rank
+        self.__file : int = file
+
+        self.__piece_type : PieceType = piecetype
+        
+        self.__resource : ChessImage | None = resource
+        
+        self.__object_name : str = objname
+        
+        self.__is_already_moved : bool = False
+        
         self.__set_pixmap()
         self.__update_pos()
+        
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     # Characteristics setting methods
