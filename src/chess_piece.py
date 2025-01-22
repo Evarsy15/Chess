@@ -1,10 +1,11 @@
 import os
 from enum import IntEnum
 
-from PySide6.QtCore import Qt, QObject, QPoint, QPointF, QTimeLine
+from PySide6.QtCore import Qt, QObject, QPoint, QPointF
 from PySide6.QtGui import QCursor, QPixmap
-from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPixmapItem, QGraphicsItemAnimation
-from PySide6.QtGui import QAction, QImage, QPainter
+from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPixmapItem
+
+from image import ChessImage
 
 class PieceType(IntEnum):
     WHITE = 0x00
@@ -71,15 +72,17 @@ class ChessPiece(QGraphicsPixmapItem):
 
     def __init__(self, rank : int = -1, file : int = -1,
                        piecetype : PieceType = PieceType.EMPTY,
-                       pixmap : QPixmap | None = None,
+                       resource : ChessImage | None = None,
                        objname : str = '',
                        parent : QGraphicsItem | None = None):
-        super().__init__(pixmap, parent)
+        super().__init__(parent)
         self.__rank = rank
         self.__file = file
         self.__piece_type = piecetype
+        self.__resource = resource
         self.__object_name = objname
         self.__is_already_moved = False
+        self.__set_pixmap()
         self.__update_pos()
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
@@ -101,6 +104,9 @@ class ChessPiece(QGraphicsPixmapItem):
     def unsetMoved(self) -> None:
         self.__is_already_moved = False
     
+    def setResource(self, resource : ChessImage) -> None:
+        self.__resource = resource
+    
     # Characteristics access methods
     def ObjectName(self) -> str:
         return self.__object_name
@@ -119,6 +125,15 @@ class ChessPiece(QGraphicsPixmapItem):
     
     def isAlreadyMoved(self) -> bool:
         return self.__is_already_moved
+    
+    # Promotion
+    def Promote(self, piecetype : PieceType) -> None:
+        if self.PieceKind() != PieceType.PAWN:
+            return
+        
+        # piecetype = piecetype & PieceType.PIECE_MASK
+        self.setPieceType(self.PieceColor() | piecetype)
+        self.__set_pixmap()
 
     @staticmethod
     def getPieceColor(piecetype : PieceType) -> PieceType:
@@ -157,6 +172,38 @@ class ChessPiece(QGraphicsPixmapItem):
 
     def __update_pos(self) -> None:
         self.setPos(QPoint(self.__file * 100, (7 - self.__rank) * 100))
+    
+    def __set_pixmap(self) -> None:
+        _resource = self.__resource
+        if _resource == None:
+            return
+        
+        match self.__piece_type:
+            case PieceType.WHITE_KING:
+                self.setPixmap(_resource.white_king)
+            case PieceType.WHITE_QUEEN:
+                self.setPixmap(_resource.white_queen)
+            case PieceType.WHITE_ROOK:
+                self.setPixmap(_resource.white_rook)
+            case PieceType.WHITE_BISHOP:
+                self.setPixmap(_resource.white_bishop)
+            case PieceType.WHITE_KNIGHT:
+                self.setPixmap(_resource.white_knight)
+            case PieceType.WHITE_PAWN:
+                self.setPixmap(_resource.white_pawn)
+            case PieceType.BLACK_KING:
+                self.setPixmap(_resource.black_king)
+            case PieceType.BLACK_QUEEN:
+                self.setPixmap(_resource.black_queen)
+            case PieceType.BLACK_ROOK:
+                self.setPixmap(_resource.black_rook)
+            case PieceType.BLACK_BISHOP:
+                self.setPixmap(_resource.black_bishop)
+            case PieceType.BLACK_KNIGHT:
+                self.setPixmap(_resource.black_knight)
+            case PieceType.BLACK_PAWN:
+                self.setPixmap(_resource.black_pawn)
+
 
 class MoveType(IntEnum):
     BASIC      = 0   # Any move except special moves

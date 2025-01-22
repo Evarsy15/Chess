@@ -1,14 +1,12 @@
-import os
+import os, math, time
 from enum import IntEnum
 from copy import deepcopy
 from PySide6.QtCore import (Qt, QObject, QPoint, QPointF, QRect, QRectF, QTimeLine, Signal)
 from PySide6.QtGui import QPixmap, QPainter, QTransform
-from PySide6.QtWidgets import (QWidget,
-    QGraphicsScene, QGraphicsView, QGraphicsItemAnimation
-)
+from PySide6.QtWidgets import (QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsItemAnimation)
 
 from image import ChessImage
-from .chess_piece import ChessPiece, PieceType, MoveType, PieceMove
+from src import ChessPiece, PieceType, MoveType, PieceMove, PromotionItem
 
 class MoveDir(IntEnum):
     UP        = 0
@@ -38,14 +36,19 @@ class ChessBoardView(QGraphicsView):
     
     boardClicked = Signal(QPoint)
     pieceClicked = Signal(ChessPiece)
+    promotionItemClicked = Signal(PromotionItem, QPoint)
 
     def mousePressEvent(self, event):
         __pos  = event.pos()
         __item = self.itemAt(__pos)
+        print(__item)
+        print(__item.parentItem())
 
         # Determine which item is clicked: piece or board.
         if isinstance(__item, ChessPiece):
             self.pieceClicked.emit(__item)
+        elif isinstance(__item.parentItem(), PromotionItem):
+            self.promotionItemClicked.emit(__item.parentItem(), __pos)
         else:
             self.boardClicked.emit(__pos)
 
@@ -60,8 +63,14 @@ class ChessBoard(QObject):
         self.board_scene = ChessBoardScene(resource, parent)
         self.board_view  = ChessBoardView(self.board_scene, parent)
 
+        self.animation = QGraphicsItemAnimation(self)
+        self.timeline = QTimeLine(100)
+        self.timeline.setUpdateInterval(1)
+        self.animation.setTimeLine(self.timeline)
+
         self.__init_chess_piece()
         self.__init_chess_board()
+        self.__init_promotion_item()
         self.__connect_signal_and_slot()
     
     def setGeometry(self, rect : QRect | QRectF):
@@ -73,7 +82,7 @@ class ChessBoard(QObject):
     def updateResource(self):
         pass
 
-    turnChanged = Signal(PieceType)
+    turnChanged = Signal()
     
     # Chess-board event handler
     def boardClickHandler(self, pos : QPoint) -> None:
@@ -81,6 +90,10 @@ class ChessBoard(QObject):
             print(f'ChessBoard.boardClickHandler() : ')
             print(f' - pos : ({pos.x()}, {pos.y()})')
         
+        # Ignore input when promotion item is opened
+        if self.__promotion_mode == True:
+            return
+
         # When there is a piece in focus
         if self.__is_in_focus == True:
             # Get rank/file coordinate for clicked square
@@ -112,6 +125,10 @@ class ChessBoard(QObject):
             _rank, _file = piece.Square()
             print(f'ChessBoard.pieceClickHandler() : ')
             print(f' - Clicked Piece : {piece.ObjectName()} at {ChessPiece.fileDict[_file]}{ChessPiece.rankDict[_rank]} square')
+
+        # Ignore input when promotion item is opened
+        if self.__promotion_mode == True:
+            return
 
         # Check if any piece is in focus.
         # If so, check whether current piece is clicked for capturing or not.
@@ -151,40 +168,72 @@ class ChessBoard(QObject):
             else:
                 pass
 
-    def __init_chess_piece(self):
-        self.item_white_king     = ChessPiece(0, 4, PieceType.WHITE_KING,   self.resource.white_king,   'white-king')
-        self.item_white_queen    = ChessPiece(0, 3, PieceType.WHITE_QUEEN,  self.resource.white_queen,  'white-queen')
-        self.item_white_rook_a   = ChessPiece(0, 0, PieceType.WHITE_ROOK,   self.resource.white_rook,   'white-rook-a')
-        self.item_white_rook_h   = ChessPiece(0, 7, PieceType.WHITE_ROOK,   self.resource.white_rook,   'white-rook-h')
-        self.item_white_bishop_c = ChessPiece(0, 2, PieceType.WHITE_BISHOP, self.resource.white_bishop, 'white-bishop-c')
-        self.item_white_bishop_f = ChessPiece(0, 5, PieceType.WHITE_BISHOP, self.resource.white_bishop, 'white-bishop-f')
-        self.item_white_knight_b = ChessPiece(0, 1, PieceType.WHITE_KNIGHT, self.resource.white_knight, 'white-knight-b')
-        self.item_white_knight_g = ChessPiece(0, 6, PieceType.WHITE_KNIGHT, self.resource.white_knight, 'white-knight-g')
-        self.item_white_pawn_a   = ChessPiece(1, 0, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-a')
-        self.item_white_pawn_b   = ChessPiece(1, 1, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-b')
-        self.item_white_pawn_c   = ChessPiece(1, 2, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-c')
-        self.item_white_pawn_d   = ChessPiece(1, 3, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-d')
-        self.item_white_pawn_e   = ChessPiece(1, 4, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-e')
-        self.item_white_pawn_f   = ChessPiece(1, 5, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-f')
-        self.item_white_pawn_g   = ChessPiece(1, 6, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-g')
-        self.item_white_pawn_h   = ChessPiece(1, 7, PieceType.WHITE_PAWN,   self.resource.white_pawn,   'white-pawn-h')
+    def promotionItemClickHandler(self, item : PromotionItem, pos : QPoint) -> None:
+        if self.debug_mode == True:
+            print(f'ChessBoard.promotionItemClickHandler()')
+        
+        _base_pos = item.pos().toPoint()
+        _rel_pos  = pos - _base_pos
 
-        self.item_black_king     = ChessPiece(7, 4, PieceType.BLACK_KING,   self.resource.black_king,   'black-king')
-        self.item_black_queen    = ChessPiece(7, 3, PieceType.BLACK_QUEEN,  self.resource.black_queen,  'black-queen')
-        self.item_black_rook_a   = ChessPiece(7, 0, PieceType.BLACK_ROOK,   self.resource.black_rook,   'black-rook-a')
-        self.item_black_rook_h   = ChessPiece(7, 7, PieceType.BLACK_ROOK,   self.resource.black_rook,   'black-rook-h')
-        self.item_black_bishop_c = ChessPiece(7, 2, PieceType.BLACK_BISHOP, self.resource.black_bishop, 'black-bishop-c')
-        self.item_black_bishop_f = ChessPiece(7, 5, PieceType.BLACK_BISHOP, self.resource.black_bishop, 'black-bishop-f')
-        self.item_black_knight_b = ChessPiece(7, 1, PieceType.BLACK_KNIGHT, self.resource.black_knight, 'black-knight-b')
-        self.item_black_knight_g = ChessPiece(7, 6, PieceType.BLACK_KNIGHT, self.resource.black_knight, 'black-knight-g')
-        self.item_black_pawn_a   = ChessPiece(6, 0, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-a')
-        self.item_black_pawn_b   = ChessPiece(6, 1, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-b')
-        self.item_black_pawn_c   = ChessPiece(6, 2, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-c')
-        self.item_black_pawn_d   = ChessPiece(6, 3, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-d')
-        self.item_black_pawn_e   = ChessPiece(6, 4, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-e')
-        self.item_black_pawn_f   = ChessPiece(6, 5, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-f')
-        self.item_black_pawn_g   = ChessPiece(6, 6, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-g')
-        self.item_black_pawn_h   = ChessPiece(6, 7, PieceType.BLACK_PAWN,   self.resource.black_pawn,   'black-pawn-h')
+        _item_promoting_pawn = self.__move_history[-1].PieceToMove()
+        _rank, _file = _item_promoting_pawn.Square()
+
+        if item.orient == PromotionItem.VERTICAL:
+            _n = math.floor(_rel_pos.y() / 100)
+
+            match _n:
+                # Queen
+                case 0:
+                    _item_promoting_pawn.Promote(PieceType.QUEEN)
+                # Rook
+                case 1:
+                    _item_promoting_pawn.Promote(PieceType.ROOK)
+                # Bishop
+                case 2:
+                    _item_promoting_pawn.Promote(PieceType.BISHOP)
+                # Knight
+                case 3:
+                    _item_promoting_pawn.Promote(PieceType.KNIGHT)
+
+        self.board_status[_rank][_file] = _item_promoting_pawn.PieceType()
+
+        self.__promotion_mode = False
+        item.setVisible(False)
+
+    def __init_chess_piece(self):
+        self.item_white_king     = ChessPiece(0, 4, PieceType.WHITE_KING,   self.resource, 'white-king')
+        self.item_white_queen    = ChessPiece(0, 3, PieceType.WHITE_QUEEN,  self.resource, 'white-queen')
+        self.item_white_rook_a   = ChessPiece(0, 0, PieceType.WHITE_ROOK,   self.resource, 'white-rook-a')
+        self.item_white_rook_h   = ChessPiece(0, 7, PieceType.WHITE_ROOK,   self.resource, 'white-rook-h')
+        self.item_white_bishop_c = ChessPiece(0, 2, PieceType.WHITE_BISHOP, self.resource, 'white-bishop-c')
+        self.item_white_bishop_f = ChessPiece(0, 5, PieceType.WHITE_BISHOP, self.resource, 'white-bishop-f')
+        self.item_white_knight_b = ChessPiece(0, 1, PieceType.WHITE_KNIGHT, self.resource, 'white-knight-b')
+        self.item_white_knight_g = ChessPiece(0, 6, PieceType.WHITE_KNIGHT, self.resource, 'white-knight-g')
+        self.item_white_pawn_a   = ChessPiece(1, 0, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-a')
+        self.item_white_pawn_b   = ChessPiece(1, 1, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-b')
+        self.item_white_pawn_c   = ChessPiece(1, 2, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-c')
+        self.item_white_pawn_d   = ChessPiece(1, 3, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-d')
+        self.item_white_pawn_e   = ChessPiece(1, 4, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-e')
+        self.item_white_pawn_f   = ChessPiece(1, 5, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-f')
+        self.item_white_pawn_g   = ChessPiece(1, 6, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-g')
+        self.item_white_pawn_h   = ChessPiece(1, 7, PieceType.WHITE_PAWN,   self.resource, 'white-pawn-h')
+
+        self.item_black_king     = ChessPiece(7, 4, PieceType.BLACK_KING,   self.resource, 'black-king')
+        self.item_black_queen    = ChessPiece(7, 3, PieceType.BLACK_QUEEN,  self.resource, 'black-queen')
+        self.item_black_rook_a   = ChessPiece(7, 0, PieceType.BLACK_ROOK,   self.resource, 'black-rook-a')
+        self.item_black_rook_h   = ChessPiece(7, 7, PieceType.BLACK_ROOK,   self.resource, 'black-rook-h')
+        self.item_black_bishop_c = ChessPiece(7, 2, PieceType.BLACK_BISHOP, self.resource, 'black-bishop-c')
+        self.item_black_bishop_f = ChessPiece(7, 5, PieceType.BLACK_BISHOP, self.resource, 'black-bishop-f')
+        self.item_black_knight_b = ChessPiece(7, 1, PieceType.BLACK_KNIGHT, self.resource, 'black-knight-b')
+        self.item_black_knight_g = ChessPiece(7, 6, PieceType.BLACK_KNIGHT, self.resource, 'black-knight-g')
+        self.item_black_pawn_a   = ChessPiece(6, 0, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-a')
+        self.item_black_pawn_b   = ChessPiece(6, 1, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-b')
+        self.item_black_pawn_c   = ChessPiece(6, 2, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-c')
+        self.item_black_pawn_d   = ChessPiece(6, 3, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-d')
+        self.item_black_pawn_e   = ChessPiece(6, 4, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-e')
+        self.item_black_pawn_f   = ChessPiece(6, 5, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-f')
+        self.item_black_pawn_g   = ChessPiece(6, 6, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-g')
+        self.item_black_pawn_h   = ChessPiece(6, 7, PieceType.BLACK_PAWN,   self.resource, 'black-pawn-h')
 
         self.board_scene.addItem(self.item_white_king);     self.board_scene.addItem(self.item_black_king)
         self.board_scene.addItem(self.item_white_queen);    self.board_scene.addItem(self.item_black_queen)
@@ -207,7 +256,9 @@ class ChessBoard(QObject):
         self.__turn = PieceType.WHITE      # Turn
         self.__is_in_focus = False         # Focus
         self.__piece_in_focus = None       # Piece in Focus
+        self.__item_highlight : list[QGraphicsPixmapItem] = []
         self.__move_history : list[PieceMove] = [] # Sequence of piece moves
+        self.__promotion_mode = False      # Promotion mode
         self.board_status = [
             [PieceType.WHITE_ROOK, PieceType.WHITE_KNIGHT, PieceType.WHITE_BISHOP, PieceType.WHITE_QUEEN, 
              PieceType.WHITE_KING, PieceType.WHITE_BISHOP, PieceType.WHITE_KNIGHT, PieceType.WHITE_ROOK],
@@ -227,9 +278,20 @@ class ChessBoard(QObject):
              PieceType.BLACK_KING, PieceType.BLACK_BISHOP, PieceType.BLACK_KNIGHT, PieceType.BLACK_ROOK]
         ]
 
+    def __init_promotion_item(self):
+        self.item_promotion_white = PromotionItem(PromotionItem.VERTICAL, PieceType.WHITE, self.resource)
+        self.item_promotion_black = PromotionItem(PromotionItem.VERTICAL, PieceType.BLACK, self.resource)
+        
+        self.board_scene.addItem(self.item_promotion_white)
+        self.board_scene.addItem(self.item_promotion_black)
+
+        # self.item_promotion_white.setVisible(True)
+
     def __connect_signal_and_slot(self):
         self.board_view.boardClicked.connect(self.boardClickHandler)
         self.board_view.pieceClicked.connect(self.pieceClickHandler)
+        self.board_view.promotionItemClicked.connect(self.promotionItemClickHandler)
+        self.timeline.finished.connect(self.__process_after_move)
     
     @staticmethod
     def __check_king_safety(turn : PieceType, boardStatus : list[list[PieceType]]) -> bool:
@@ -497,6 +559,7 @@ class ChessBoard(QObject):
     def __free_focus(self) -> None:
         self.__is_in_focus = False
         self.__piece_in_focus = None
+        self.__remove_highlight()
 
     def __find_available_move(self, rank : int, file : int) -> PieceMove | None:
         if self.__is_in_focus == False:
@@ -522,7 +585,7 @@ class ChessBoard(QObject):
         _cand_sqr = []
         _avail_moves : list[PieceMove] = []
 
-        # Basic moves
+        # Basic moves (including promotion)
         match _kind:
             case PieceType.PAWN:
                 # Pawn's movement
@@ -570,14 +633,30 @@ class ChessBoard(QObject):
 
         # Distinguish legal moves
         for _cand_rank, _cand_file in _cand_sqr:
-            # Candidate Move
+            # Check if the move is promotion move
+            if _kind == PieceType.PAWN:
+                if _color == PieceType.WHITE:
+                    if _cand_rank == 7:
+                        _is_promotion = True
+                    else:
+                        _is_promotion = False
+                else:
+                    if _cand_rank == 0:
+                        _is_promotion = True
+                    else:
+                        _is_promotion = False
+            else:
+                _is_promotion = False
+            
+            # Generate Candidate Move
             _cand_move = PieceMove(
                 piece, self.__get_item_from_square(_cand_rank, _cand_file), None, 
-                MoveType.BASIC,
+                MoveType.BASIC if _is_promotion == False else MoveType.PROMOTION,
                 (_rank, _file), (_cand_rank, _cand_file), None
             )
 
             # Check if the candidate move is legal (in terms of king's safety)
+            # If so, add the move into available move list
             if self.__is_legal_move(_cand_move):
                 _avail_moves.append(_cand_move)
         
@@ -586,7 +665,8 @@ class ChessBoard(QObject):
         if _kind == PieceType.KING:
             # King-side
             if self.__is_castling_available(_color, MoveType.CASTLING_K):
-                print("Castling Available")
+                if self.debug_mode == True:
+                    print("Kingside Castling Available")
 
                 _rook = self.item_white_rook_h if _color == PieceType.WHITE else \
                         self.item_black_rook_h
@@ -601,6 +681,9 @@ class ChessBoard(QObject):
             
             # Queen-side
             if self.__is_castling_available(_color, MoveType.CASTLING_Q):
+                if self.debug_mode == True:
+                    print("Queenside Castling Available")
+                
                 _rook = self.item_white_rook_a if _color == PieceType.WHITE else \
                         self.item_black_rook_a
                 _rook_rank, _rook_file = _rook.Square()
@@ -615,12 +698,17 @@ class ChessBoard(QObject):
         # En passant
         if _kind == PieceType.PAWN:
             if self.__is_en_passant_available(_color, _rank, _file):
+                if self.debug_mode == True:
+                    print("En-passant available")
+                
                 _pawn_in_capture = self.__move_history[-1].PieceToMove()
                 _pawn_rank, _pawn_file = _pawn_in_capture.Square()
                 _en_passant_move = PieceMove(
                     piece, _pawn_in_capture, None,
                     MoveType.EN_PASSANT,
-                    (_rank, _file), (_rank+1, _pawn_file), [(_pawn_rank, _pawn_file)]
+                    (_rank, _file), 
+                    (_rank+1, _pawn_file) if _color == PieceType.WHITE else (_rank-1, _pawn_file),
+                    [(_pawn_rank, _pawn_file)]
                 )
 
                 if self.__is_legal_move(_en_passant_move):
@@ -628,9 +716,18 @@ class ChessBoard(QObject):
 
         self.avail_moves = _avail_moves
         
-        for _move in self.avail_moves:
-            print(_move.NewSquare(), end=' | ')
-        print()
+        # Show available squares on the command
+        if self.debug_mode == True:
+            if len(self.avail_moves) > 0:
+                print('Available squares : ', end='')
+                print('| ', end='')
+                for _move in self.avail_moves:
+                    _rank, _file = _move.NewSquare()
+                    _str = ChessPiece.fileDict[_file] + ChessPiece.rankDict[_rank]
+                    print(_str, end = ' | ')
+                print()
+            else:
+                print('No available move')
 
     def __get_item_from_square(self, rank : int, file : int) -> ChessPiece | None:
         # if board is not reversed
@@ -894,14 +991,31 @@ class ChessBoard(QObject):
         
         return _candidate_square
 
+    @staticmethod
+    def __get_pos_from_square(rank : int, file : int, isBoardReversed : bool = False) -> QPoint:
+        if isBoardReversed == False:
+            return QPoint(file * 100, (7 - rank) * 100)
+        else:
+            return QPoint((7 - file) * 100, rank * 100)
+
     def __hand_player_turn(self) -> None:
         self.__turn = PieceType.BLACK if self.__turn == PieceType.WHITE else PieceType.WHITE
+        self.turnChanged.emit()
     
     def __highlight_available_moves(self) -> None:
-        # Unimplemented
         for _move in self.avail_moves:
+            _piece_in_capture = _move.PieceInCapture()
             _rank, _file = _move.NewSquare()
 
+            _highlight = QGraphicsPixmapItem()
+            self.__item_highlight.append(_highlight)
+            if _piece_in_capture == None:
+                _highlight.setPixmap(self.resource.highlight_dot)
+            else:
+                _highlight.setPixmap(self.resource.highlight_circle)
+            
+            self.board_scene.addItem(_highlight)
+            _highlight.setPos(ChessBoard.__get_pos_from_square(_rank, _file))
 
     def __is_castling_available(self, turn : PieceType, side : MoveType):
         match (turn, side):
@@ -1014,15 +1128,10 @@ class ChessBoard(QObject):
         _old_pos_x, _old_pos_y = ChessPiece.getPosFromSquare(_old_rank, _old_file)
         _new_pos_x, _new_pos_y = ChessPiece.getPosFromSquare(_new_rank, _new_file)
 
-        timeline = QTimeLine(100) # 100 ms
-        timeline.setUpdateInterval(1)   # 1 ms
-
-        animation = QGraphicsItemAnimation(self)
-        animation.setItem(_piece_to_move)
-        animation.setTimeLine(timeline)
+        self.animation.setItem(_piece_to_move)
         for i in range(101):
             step = i / 100
-            animation.setPosAt(step, QPointF(
+            self.animation.setPosAt(step, QPointF(
                 _old_pos_x * (1 - step) + _new_pos_x * step,
                 _old_pos_y * (1 - step) + _new_pos_y * step
             ))
@@ -1035,31 +1144,73 @@ class ChessBoard(QObject):
             _aux_old_pos_x, _aux_old_pos_y = ChessPiece.getPosFromSquare(_aux_old_rank, _aux_old_file)
             _aux_new_pos_x, _aux_new_pos_y = ChessPiece.getPosFromSquare(_aux_new_rank, _aux_new_file)
 
-            aux_animation = QGraphicsItemAnimation(self)
-            aux_animation.setItem(_piece_aux)
-            aux_animation.setTimeLine(timeline) # Share same timeline
+            self.aux_animation = QGraphicsItemAnimation(self)
+            self.aux_animation.setItem(_piece_aux)
+            self.aux_animation.setTimeLine(self.timeline) # Share same timeline
 
             for i in range(101):
                 step = i / 100
-                aux_animation.setPosAt(step, QPointF(
+                self.aux_animation.setPosAt(step, QPointF(
                     _aux_old_pos_x * (1 - step) + _aux_new_pos_x * step,
                     _aux_old_pos_y * (1 - step) + _aux_new_pos_y * step
                 ))
-        
-        timeline.start()
-        
         # Save the move into move history
         self.__move_history.append(move)
+
+        # Start timeline : Run animation
+        self.timeline.start()
 
         # Update piece & board status
         ChessBoard.__update_piece_status(move)
         ChessBoard.__update_board_status(move, self.board_status)
+
+        if self.debug_mode == True:
+            ChessBoard.__print_board_status(self.board_status)
+
+    def __process_after_move(self) -> None:
+        _last_move = self.__move_history[-1]
+        _piece_to_move = _last_move.PieceToMove()
+
+        # Update piece & board status
+        ChessBoard.__update_piece_status(_last_move)
+        ChessBoard.__update_board_status(_last_move, self.board_status)
+
+        # Promotion
+        if _last_move.MoveType() == MoveType.PROMOTION:
+            self.__promotion_mode == True
+
+            _rank, _file = _piece_to_move.Square()
+            if True: # If promotion item is vertical
+                if _piece_to_move.PieceColor() == PieceType.WHITE:
+                    # If board is not reversed
+                    self.item_promotion_white.setPos(_file * 100, 0)
+                    self.item_promotion_white.setVisible(True)
+                elif _piece_to_move.PieceColor() == PieceType.BLACK:
+                    # If board is not reversed
+                    self.item_promotion_black.setPos(_file * 100, 400)
+                    self.item_promotion_black.setVisible(True)
+                else:
+                    exit()
+        
+        # Clear Animation(s)
+        self.animation.clear()
+        if _last_move.MoveType() in [MoveType.CASTLING_K, MoveType.CASTLING_Q]:
+            self.aux_animation.clear()
+
+    def __remove_highlight(self) -> None:
+        for _item in self.__item_highlight:
+            self.board_scene.removeItem(_item)
+            del _item
+        self.__item_highlight.clear()
 
     def __reset_chess_board(self) -> None:
         # Unimplemented
         pass
     
     def __set_focus_on_piece(self, piece : ChessPiece) -> None:
+        # Free previous highlight moves
+        self.__remove_highlight()
+
         # Set focus on the piece
         self.__is_in_focus = True
         self.__piece_in_focus = piece
@@ -1074,7 +1225,7 @@ class ChessBoard(QObject):
     def __update_board_status(move : PieceMove, boardStatus : list[list[PieceType]]) -> None:
         match move.MoveType():
             # Basic move
-            case MoveType.BASIC:
+            case MoveType.BASIC | MoveType.PROMOTION:
                 _old_rank, _old_file = move.OldSquare()
                 _new_rank, _new_file = move.NewSquare()
                 
@@ -1115,7 +1266,7 @@ class ChessBoard(QObject):
                 boardStatus[_new_rank][_new_file] = move.PieceToMove().PieceType()
                 boardStatus[_aux_rank][_aux_file] = PieceType.EMPTY
         
-        ChessBoard.__print_board_status(boardStatus)
+        # ChessBoard.__print_board_status(boardStatus)
 
     @staticmethod
     def __update_piece_status(move : PieceMove) -> None:

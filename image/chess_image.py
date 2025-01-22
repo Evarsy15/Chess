@@ -71,10 +71,12 @@ class ChessImage(QObject):
         self.black_pawn   = QPixmap(os.path.join(__piece_img_dir, 'black-pawn.png'))
     
     def __load_misc(self):
-        __highlight_dot_img_path = os.path.join(
+        __misc_img_dir = os.path.join(
             ChessImage.resource_root,
-            'misc',
-            'highlight.png'
+            'misc'
         )
 
-        self.highlight_dot = QPixmap(__highlight_dot_img_path)
+        self.highlight_dot    = QPixmap(os.path.join(__misc_img_dir, 'highlight-dot.png'))
+        self.highlight_circle = QPixmap(os.path.join(__misc_img_dir, 'highlight-circle.png'))
+        self.promotion_bg_ver = QPixmap(os.path.join(__misc_img_dir, 'promotion-vertical.png'))
+        self.promotion_bg_hor = QPixmap(os.path.join(__misc_img_dir, 'promotion-horizontal.png'))
