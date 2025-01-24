@@ -1,8 +1,9 @@
 import os
-from PySide6.QtCore import QPoint, QPointF, QRect, Slot, Signal
-from PySide6.QtWidgets import (QWidget, QMainWindow, QGridLayout, 
+from PySide6.QtCore import Qt, QRect, Slot, Signal
+from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import (QWidget, QMainWindow,
     QMenuBar, QMenu, QStatusBar,
-    QLabel, QPushButton,
+    QPushButton, QMessageBox,
     QSizePolicy)
 from PySide6.QtGui import QAction, QImage, QPainter
 
@@ -126,7 +127,7 @@ class MainWindow(QMainWindow):
 
         # Chess Clocks
         self.white_clock = ChessClock(600, 0, self)
-        self.black_clock = ChessClock(599, 0, self)
+        self.black_clock = ChessClock(600, 0, self)
         
         self.white_clock.setObjectName("white_clock")
         self.white_clock.setGeometry(QRect(850, 800, 125, 50))
@@ -151,15 +152,27 @@ class MainWindow(QMainWindow):
 
         # Reverse Board Buttons
         self.reverse_board_button = ReverseBoardButton(self.__resource, self)
-        self.reverse_board_button.setGeometry(QRect(850, 125, 100, 100))
-        
+        self.reverse_board_button.setGeometry(QRect(850, 125, 25, 25))
+        self.reverse_board_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         self.__reversed = False
 
+        # Pop-up window
+        self.pop_up_window = QMessageBox()
+        self.pop_up_window.setIcon(QMessageBox.Icon.Information)
+        self.pop_up_window.setStandardButtons(QMessageBox.StandardButton.Ok)
+
     def __connect_signal_and_slot(self):
         self.chess_board.turnChanged.connect(self.__turn_change_handler)
+        self.chess_board.gameOverWin.connect(self.__game_over_win_handler)
+        self.chess_board.gameOverTie.connect(self.__game_over_tie_handler)
+
+        self.white_clock.signalTimeOver.connect(self.__timeout_handler)
+        self.black_clock.signalTimeOver.connect(self.__timeout_handler)
 
         self.start_button.pressed.connect(self.__start_game)
+        self.resign_button.pressed.connect(self.__resign_handler)
+        self.tie_button.pressed.connect(self.__tie_handler)
         self.reverse_board_button.buttonPressed.connect(self.__reverse_board_handler)
 
     def __load_resource(self):
@@ -198,16 +211,59 @@ class MainWindow(QMainWindow):
         pass
     
     def __start_game(self):
+        # Unfreeze chess board
+        self.chess_board.unfreezeChessBoard()
+
+        # Launch chess clock
         self.__turn = PieceType.WHITE
         self.white_clock.startClock()
 
+        # Deactivate start button
         self.start_button.setVisible(False)
     
+    def __reset_game(self):
+        # Reset chess board
+        self.chess_board.freezeChessBoard()
+        self.chess_board.resetChessBoard()
+
+        # Reset chess clocks
+        self.white_clock.resetClock()
+        self.black_clock.resetClock()
+
+        # Activate start button
+        self.start_button.setVisible(True)
+
     def __resign_handler(self):
-        pass
+        # Freeze chess board
+        self.chess_board.freezeChessBoard()
+
+        # Pause chess clocks
+        self.white_clock.pauseClock()
+        self.black_clock.pauseClock()
+
+        # Check who's win and setup pop-up window
+        _str_resign = 'White' if self.__turn == PieceType.WHITE else 'Black'
+        _str_winner = 'White' if self.__turn == PieceType.BLACK else 'Black'
+
+        # Show Pop-up window
+        self.__show_pop_up_window(f'Resign by {_str_resign}', f'{_str_winner} won by Resignation')
+        
+        # Reset game
+        self.__reset_game()
 
     def __tie_handler(self):
-        pass
+        # Freeze chess board
+        self.chess_board.freezeChessBoard()
+
+        # Pause chess clocks
+        self.white_clock.pauseClock()
+        self.black_clock.pauseClock()
+
+        # Show Pop-up window
+        self.__show_pop_up_window('Tie', 'Draw by agreement')
+
+        # Reset game
+        self.__reset_game()
 
     @Slot()
     def __turn_change_handler(self):
@@ -238,11 +294,82 @@ class MainWindow(QMainWindow):
         # Change place of all active pieces in chess board
         self.chess_board.reverseChessBoard()
     
-    def __game_over_handler(self):
-        pass
+    def __game_over_win_handler(self, winner : PieceType):
+        # Freeze chess board
+        self.chess_board.freezeChessBoard()
 
-    def __timeout_handler(self):
-        _clock = self.sender()
+        # Pause chess clock
+        self.white_clock.pauseClock()
+        self.black_clock.pauseClock()
+
+        # Check who's win by checkmate
+        # White win by checkmate
+        if winner == PieceType.WHITE:
+            _str_winner = 'White'
+            _str_loser  = 'Black'
+        # Black win by checkmate
+        elif winner == PieceType.BLACK:
+            _str_winner = 'Black'
+            _str_loser  = 'White'
+        # Invalid case
+        else:
+            print(f'MainWindow.__game_over_win_handler() : ')
+            print(f'Error : Invalid winner: {winner}')
+            exit()
+        
+        # Show Pop-up window
+        self.__show_pop_up_window('Checkmate', f'{_str_winner} won by Checkmate')
+        
+        # Reset game
+        self.__reset_game()
+
+    def __game_over_tie_handler(self):
+        # Freeze chess board
+        self.chess_board.freezeChessBoard()
 
         self.white_clock.pauseClock()
         self.black_clock.pauseClock()
+
+        # Analyze Draw situation
+        # ※ It is unimplemented for now since there is only way to reach here by stalemate.
+
+        # Show Pop-up window
+        self.__show_pop_up_window('Stalemate', 'Draw by Stalemate')
+
+        # Reset game
+        self.__reset_game()
+
+    def __timeout_handler(self):
+        # Freeze chess board
+        self.chess_board.freezeChessBoard()
+
+        self.white_clock.pauseClock()
+        self.black_clock.pauseClock()
+
+        # Check who's time limit is over
+        _clock = self.sender()
+
+        # White lose by time
+        if _clock == self.white_clock:
+            _str_loser  = 'White'
+            _str_winner = 'Black'
+        # Black lose by time
+        elif _clock == self.black_clock:
+            _str_loser  = 'White'
+            _str_winner = 'Black'
+        # Invalid case
+        else:
+            print(f'MainWindow.__timeout_handler() : ')
+            print(f'Error : Invalid sender: {self.sender()}')
+            exit()
+        
+        # Setup pop-up window
+        self.__show_pop_up_window(f'Timeout of {_str_loser}', f'{_str_winner} won by time')
+        
+        # Reset game
+        self.__reset_game()
+    
+    def __show_pop_up_window(self, title : str, text : str):
+        self.pop_up_window.setWindowTitle(title)
+        self.pop_up_window.setText(text)
+        self.pop_up_window.exec()

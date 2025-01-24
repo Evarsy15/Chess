@@ -3,7 +3,7 @@ from PySide6.QtCore import (Qt, QObject, QRect, QRectF,
 from PySide6.QtWidgets import QWidget, QLCDNumber
 
 class ChessClock(QObject):
-    def __init__(self, base : int,
+    def __init__(self, time : int,
                        fischer : int = 0,
                        parent : QObject = None) :
         super().__init__()
@@ -21,8 +21,10 @@ class ChessClock(QObject):
     # Initialize variables for clock management
         self.launched = False
         self.unlimited = False
-        self.base_time = 0
-        self.fischer_time = 0
+        self.base_time = time
+        self.fischer_time = fischer
+        self.clock_time = self.base_time
+        self.__display_time()
 
     # Connect inside signal-slot
         self.clock_timer.timeout.connect(self.__update_clock)
@@ -43,6 +45,8 @@ class ChessClock(QObject):
         
         self.launched = False
         self.unlimited = False
+        self.base_time = time
+        self.fischer_time = fischer
         self.clock_time = time
         self.__display_time()
     
@@ -76,6 +80,7 @@ class ChessClock(QObject):
         self.launched = False
         self.clock_timer.stop()
         self.clock_time = self.base_time
+        self.__display_time()
 
     @Slot()
     def __update_clock(self):
@@ -86,7 +91,6 @@ class ChessClock(QObject):
             self.signalTimeOver.emit()
         
         self.clock_timer.start(1000)
-        
 
     def __display_time(self):
         __min = self.clock_time // 60

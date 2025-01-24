@@ -72,13 +72,9 @@ class ChessBoard(QObject):
         self.board_scene = ChessBoardScene(resource, parent)
         self.board_view  = ChessBoardView(self.board_scene, parent)
 
-        self.animation = QGraphicsItemAnimation(self)
-        self.timeline = QTimeLine(100)
-        self.timeline.setUpdateInterval(1)
-        self.animation.setTimeLine(self.timeline)
-
         self.__init_chess_piece()
         self.__init_chess_board()
+        self.__init_animation_item()
         self.__init_promotion_item()
 
         self.__connect_signal_and_slot()
@@ -99,8 +95,12 @@ class ChessBoard(QObject):
             print(f'ChessBoard.boardClickHandler() : ')
             print(f' - pos : ({pos.x()}, {pos.y()})')
         
-        # Ignore input when promotion item is opened
-        if self.__promotion_mode == True:
+        # Freeze : Do not interact
+        if self.__is_in_freeze == True:
+            return
+        
+        # Ignore input when promotion situation
+        if self.__is_in_promotion == True:
             return
 
         # When there is a piece in focus
@@ -131,17 +131,18 @@ class ChessBoard(QObject):
             _rank, _file = piece.Square()
             print(f'ChessBoard.pieceClickHandler() : ')
             print(f' - Clicked Piece : {piece.ObjectName()} at {ChessPiece.fileDict[_file]}{ChessPiece.rankDict[_rank]} square')
+        
+        # Freeze : Do not interact
+        if self.__is_in_freeze == True:
+            return
 
-        # Ignore input when promotion item is opened
-        if self.__promotion_mode == True:
+        # Ignore input when promotion situation
+        if self.__is_in_promotion == True:
             return
 
         # Check if any piece is in focus.
         # If so, check whether current piece is clicked for capturing or not.
         if self.__is_in_focus == True:
-            if self.debug_mode == True:
-                print(f" - Current focused piece : {self.__piece_in_focus.ObjectName()}")
-            
             # Opponent piece : Check if piece is clicked for capturing
             if ChessPiece.isOpponentPiece(piece.PieceType(), self.__turn):
                 # Get square information
@@ -175,6 +176,11 @@ class ChessBoard(QObject):
         if self.debug_mode == True:
             print(f'ChessBoard.promotionItemClickHandler()')
         
+        if self.__is_in_promotion == False:
+            print(f'ChessBoard.promotionItemClickHandler() : ')
+            print(f'Error : Invalid Access: Not in promotion situation.')
+            exit()
+        
         _base_pos = item.pos().toPoint()
         _rel_pos  = pos - _base_pos
 
@@ -200,13 +206,57 @@ class ChessBoard(QObject):
 
         self.board_status[_rank][_file] = _item_promoting_pawn.PieceType()
 
-        self.__promotion_mode = False
+        self.__is_in_promotion = False
         item.setVisible(False)
 
         # Hand the turn and check if game is over
         self.__hand_player_turn()
         self.__check_game_over()
 
+    #################################
+    ### Initializers              ###
+    #################################
+    def __init_animation_item(self):
+        # Timeline for animation
+        self.timeline = QTimeLine(100)
+        self.timeline.setUpdateInterval(1)
+
+        # Animation Instance
+        self.animation = QGraphicsItemAnimation(self)
+        self.animation.setTimeLine(self.timeline)
+
+    def __init_chess_board(self):
+        self.__turn = PieceType.WHITE      # Turn
+
+        self.__is_in_focus = False         # Focus
+        self.__piece_in_focus = None       # Piece in Focus
+        
+        self.__is_in_freeze = True
+        self.__reversed = False
+
+        self.__item_highlight : list[QGraphicsPixmapItem] = []
+        self.__move_history : list[PieceMove] = [] # Sequence of piece moves
+        self.__is_in_promotion = False      # Promotion mode
+
+        self.board_status = [
+            [PieceType.WHITE_ROOK, PieceType.WHITE_KNIGHT, PieceType.WHITE_BISHOP, PieceType.WHITE_QUEEN, 
+             PieceType.WHITE_KING, PieceType.WHITE_BISHOP, PieceType.WHITE_KNIGHT, PieceType.WHITE_ROOK],
+            [PieceType.WHITE_PAWN, PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,
+             PieceType.WHITE_PAWN, PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.BLACK_PAWN, PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,
+             PieceType.BLACK_PAWN, PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN],
+            [PieceType.BLACK_ROOK, PieceType.BLACK_KNIGHT, PieceType.BLACK_BISHOP, PieceType.BLACK_QUEEN, 
+             PieceType.BLACK_KING, PieceType.BLACK_BISHOP, PieceType.BLACK_KNIGHT, PieceType.BLACK_ROOK]
+        ]
+    
     def __init_chess_piece(self):
         self.item_white_king     = ChessPiece(0, 4, PieceType.WHITE_KING,   self.resource, 'white-king')
         self.item_white_queen    = ChessPiece(0, 3, PieceType.WHITE_QUEEN,  self.resource, 'white-queen')
@@ -271,33 +321,6 @@ class ChessBoard(QObject):
             self.item_black_pawn_a,   self.item_black_pawn_b,   self.item_black_pawn_c,   self.item_black_pawn_d,
             self.item_black_pawn_e,   self.item_black_pawn_f,   self.item_black_pawn_g,   self.item_black_pawn_h
         ]
-    
-    def __init_chess_board(self):
-        self.__turn = PieceType.WHITE      # Turn
-        self.__is_in_focus = False         # Focus
-        self.__piece_in_focus = None       # Piece in Focus
-        self.__reversed = False
-        self.__item_highlight : list[QGraphicsPixmapItem] = []
-        self.__move_history : list[PieceMove] = [] # Sequence of piece moves
-        self.__promotion_mode = False      # Promotion mode
-        self.board_status = [
-            [PieceType.WHITE_ROOK, PieceType.WHITE_KNIGHT, PieceType.WHITE_BISHOP, PieceType.WHITE_QUEEN, 
-             PieceType.WHITE_KING, PieceType.WHITE_BISHOP, PieceType.WHITE_KNIGHT, PieceType.WHITE_ROOK],
-            [PieceType.WHITE_PAWN, PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,
-             PieceType.WHITE_PAWN, PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN],
-            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
-             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
-            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
-             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
-            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
-             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
-            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
-             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
-            [PieceType.BLACK_PAWN, PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,
-             PieceType.BLACK_PAWN, PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN],
-            [PieceType.BLACK_ROOK, PieceType.BLACK_KNIGHT, PieceType.BLACK_BISHOP, PieceType.BLACK_QUEEN, 
-             PieceType.BLACK_KING, PieceType.BLACK_BISHOP, PieceType.BLACK_KNIGHT, PieceType.BLACK_ROOK]
-        ]
 
     def __init_promotion_item(self):
         self.item_promotion_white = PromotionItem(PromotionItem.VERTICAL, PieceType.WHITE, self.resource)
@@ -314,12 +337,19 @@ class ChessBoard(QObject):
         self.board_view.promotionItemClicked.connect(self.promotionItemClickHandler)
         self.timeline.finished.connect(self.__process_after_move)
 
-    # Wrapper methods
+    # Methods for Chess Board Management by Main Window
+
+    def freezeChessBoard(self) -> None:
+        self.__is_in_freeze = True
+
     def resetChessBoard(self) -> None:
         self.__reset_chess_board()
     
     def reverseChessBoard(self) -> None:
         self.__reverse_chess_board()
+    
+    def unfreezeChessBoard(self) -> None:
+        self.__is_in_freeze = False
 
     # Methods for game management
 
@@ -1265,17 +1295,21 @@ class ChessBoard(QObject):
         
         # Promotion
         if _last_move.MoveType() == MoveType.PROMOTION:
-            self.__promotion_mode == True
+            self.__is_in_promotion == True
 
             _rank, _file = _piece_to_move.Square()
-            if True: # If promotion item is vertical
+            if True: # If promotion item is vertical | TODO later
                 if _piece_to_move.PieceColor() == PieceType.WHITE:
-                    # If board is not reversed
-                    self.item_promotion_white.setPos(_file * 100, 0)
+                    if self.__reversed == False:
+                        self.item_promotion_white.setPos(_file * 100, 0)
+                    else:
+                        self.item_promotion_white.setPos((7 - _file) * 100, 400)
                     self.item_promotion_white.setVisible(True)
                 elif _piece_to_move.PieceColor() == PieceType.BLACK:
-                    # If board is not reversed
-                    self.item_promotion_black.setPos(_file * 100, 400)
+                    if self.__reversed == False:
+                        self.item_promotion_black.setPos(_file * 100, 400)
+                    else:
+                        self.item_promotion_black.setPos((7 - _file) * 100, 0)
                     self.item_promotion_black.setVisible(True)
                 else:
                     exit()
@@ -1379,7 +1413,7 @@ class ChessBoard(QObject):
         self.__reversed = False
         self.__free_focus()
         self.__remove_move_history()
-        self.__promotion_mode = False
+        self.__is_in_promotion = False
         self.board_status.clear()
         self.board_status = [
             [PieceType.WHITE_ROOK, PieceType.WHITE_KNIGHT, PieceType.WHITE_BISHOP, PieceType.WHITE_QUEEN, 
