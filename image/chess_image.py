@@ -1,7 +1,8 @@
 import os
 from enum import StrEnum
+
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui  import QPixmap
 
 class BoardTheme(StrEnum):
     BASIC = 'basic'

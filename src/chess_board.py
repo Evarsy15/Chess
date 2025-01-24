@@ -1295,7 +1295,7 @@ class ChessBoard(QObject):
         
         # Promotion
         if _last_move.MoveType() == MoveType.PROMOTION:
-            self.__is_in_promotion == True
+            self.__is_in_promotion = True
 
             _rank, _file = _piece_to_move.Square()
             if True: # If promotion item is vertical | TODO later

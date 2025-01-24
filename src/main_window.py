@@ -1,11 +1,9 @@
-import os
-from PySide6.QtCore import Qt, QRect, Slot, Signal
-from PySide6.QtGui import QCursor
+from PySide6.QtCore import Qt, QRect, Slot
+from PySide6.QtGui import QCursor, QAction
 from PySide6.QtWidgets import (QWidget, QMainWindow,
     QMenuBar, QMenu, QStatusBar,
     QPushButton, QMessageBox,
     QSizePolicy)
-from PySide6.QtGui import QAction, QImage, QPainter
 
 from image import ChessImage
 from .chess_board import ChessBoard, ReverseBoardButton
@@ -26,26 +24,26 @@ class MainWindow(QMainWindow):
         self.__init_widgets()
     
     def __init_main_window(self):
-    # Basic information
+        # Basic properties of main window
         self.setObjectName("main_window")
         self.setWindowTitle("Chess")
         self.setFixedSize(1200, 900)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     
-    # Set central-widget
+        # Central-widget
         self.__central_widget = QWidget(self)
         self.__central_widget.setObjectName("central_widget")
         self.setCentralWidget(self.__central_widget)
         
     def __init_menu_bar(self):
-    # Menubar
+        # Menubar
         self.__menubar = QMenuBar(self)
         self.__menubar.setObjectName("menu_bar")
         self.__menubar.setGeometry(QRect(0, 0, 1200, 25))
         self.__menubar.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setMenuBar(self.__menubar)
     
-    # Menus
+        # Menus
         self.__menu_menu = QMenu(self.__menubar)
         self.__menu_menu.setObjectName("menu")
         self.__menu_menu.setTitle("Menu")
@@ -54,7 +52,12 @@ class MainWindow(QMainWindow):
         self.__menu_new_game.setObjectName("new_game")
         self.__menu_new_game.setTitle("New Game")
 
-    # Actions
+        # Actions
+        self.__action_new_1min = QAction(self)
+        self.__action_new_1min.setObjectName("new_game_1_minutes")
+        self.__action_new_1min.setText("1 Minutes")
+        self.__action_new_1min.triggered.connect(self.__new_game)
+
         self.__action_new_3min = QAction(self)
         self.__action_new_3min.setObjectName("new_game_3_minutes")
         self.__action_new_3min.setText("3 Minutes")
@@ -71,8 +74,8 @@ class MainWindow(QMainWindow):
         self.__action_new_10min.triggered.connect(self.__new_game)
 
         self.__action_new_30min = QAction(self)
-        self.__action_new_30min.setText("30 Minutes")
         self.__action_new_30min.setObjectName("new_game_30_minutes")
+        self.__action_new_30min.setText("30 Minutes")
         self.__action_new_30min.triggered.connect(self.__new_game)
 
         self.__action_new_60min = QAction(self)
@@ -104,6 +107,7 @@ class MainWindow(QMainWindow):
         self.__menu_menu.addSeparator()
         self.__menu_menu.addAction(self.__action_exit)
 
+        self.__menu_new_game.addAction(self.__action_new_1min)
         self.__menu_new_game.addAction(self.__action_new_3min)
         self.__menu_new_game.addAction(self.__action_new_5min)
         self.__menu_new_game.addSeparator()
@@ -167,8 +171,8 @@ class MainWindow(QMainWindow):
         self.chess_board.gameOverWin.connect(self.__game_over_win_handler)
         self.chess_board.gameOverTie.connect(self.__game_over_tie_handler)
 
-        self.white_clock.signalTimeOver.connect(self.__timeout_handler)
-        self.black_clock.signalTimeOver.connect(self.__timeout_handler)
+        self.white_clock.timeOut.connect(self.__timeout_handler)
+        self.black_clock.timeOut.connect(self.__timeout_handler)
 
         self.start_button.pressed.connect(self.__start_game)
         self.resign_button.pressed.connect(self.__resign_handler)
@@ -186,6 +190,8 @@ class MainWindow(QMainWindow):
         self.chess_board.resetChessBoard()
 
         match self.sender():
+            case self.__action_new_1min:
+                __time_limit = 1 * 60
             case self.__action_new_3min:
                 __time_limit = 3 * 60
             case self.__action_new_5min:
@@ -223,6 +229,7 @@ class MainWindow(QMainWindow):
     
     def __reset_game(self):
         # Reset chess board
+        self.__turn == PieceType.WHITE
         self.chess_board.freezeChessBoard()
         self.chess_board.resetChessBoard()
 
@@ -348,6 +355,7 @@ class MainWindow(QMainWindow):
 
         # Check who's time limit is over
         _clock = self.sender()
+        print(_clock)
 
         # White lose by time
         if _clock == self.white_clock:
@@ -355,8 +363,8 @@ class MainWindow(QMainWindow):
             _str_winner = 'Black'
         # Black lose by time
         elif _clock == self.black_clock:
-            _str_loser  = 'White'
-            _str_winner = 'Black'
+            _str_loser  = 'Black'
+            _str_winner = 'White'
         # Invalid case
         else:
             print(f'MainWindow.__timeout_handler() : ')
@@ -364,7 +372,7 @@ class MainWindow(QMainWindow):
             exit()
         
         # Setup pop-up window
-        self.__show_pop_up_window(f'Timeout of {_str_loser}', f'{_str_winner} won by time')
+        self.__show_pop_up_window(f'Timeout', f'{_str_winner} won by time')
         
         # Reset game
         self.__reset_game()

@@ -56,7 +56,7 @@ class ChessClock(QObject):
         self.clock_lcd.display("--:--")
     
     # Signal
-    signalTimeOver = Signal()
+    timeOut = Signal()
 
     def startClock(self):
         if self.unlimited == False:
@@ -88,7 +88,9 @@ class ChessClock(QObject):
         self.__display_time()
 
         if self.clock_time == 0:
-            self.signalTimeOver.emit()
+            self.clock_timer.stop()
+            self.timeOut.emit()
+            return
         
         self.clock_timer.start(1000)
 
