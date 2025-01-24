@@ -5,7 +5,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsPixmapItem
 
 from image import ChessImage
-from src import PieceType
+from .chess_piece import PieceType
 
 class PromotionItem(QGraphicsItemGroup):
     VERTICAL   = 0

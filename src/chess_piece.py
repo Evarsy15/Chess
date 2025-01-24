@@ -86,6 +86,8 @@ class ChessPiece(QGraphicsPixmapItem):
         self.__object_name : str = objname
         
         self.__is_already_moved : bool = False
+
+        self.__reversed : bool = False
         
         self.__set_pixmap()
         self.__update_pos()
@@ -102,7 +104,6 @@ class ChessPiece(QGraphicsPixmapItem):
     def setSquare(self, rank : int, file : int) -> None:
         self.__rank = rank
         self.__file = file
-        # self.__update_pos()
     
     def setMoved(self) -> None:
         self.__is_already_moved = True
@@ -112,6 +113,20 @@ class ChessPiece(QGraphicsPixmapItem):
     
     def setResource(self, resource : ChessImage) -> None:
         self.__resource = resource
+    
+    def reset(self, rank : int, file : int) -> None:
+        self.__rank = rank
+        self.__file = file
+
+        self.__reversed = False
+        self.__update_pos()
+
+        self.__is_already_moved = False
+        self.setVisible(True)
+    
+    def reverse(self) -> None:
+        self.__reversed = not self.__reversed
+        self.__update_pos()
     
     # Characteristics access methods
     def ObjectName(self) -> str:
@@ -172,12 +187,17 @@ class ChessPiece(QGraphicsPixmapItem):
         return (ChessPiece.getPieceColor(piecetype) != turn)
     
     @staticmethod
-    def getPosFromSquare(rank : int, file : int) -> tuple[float, float]:
-        # if board is not reversed:
-        return file * 100.0, (7 - rank) * 100.0
+    def getPosFromSquare(rank : int, file : int, reversed : bool)  -> tuple[float, float]:
+        if reversed == False:
+            return file * 100.0, (7 - rank) * 100.0
+        else:
+            return (7 - file) * 100.0, rank * 100.0
 
     def __update_pos(self) -> None:
-        self.setPos(QPoint(self.__file * 100, (7 - self.__rank) * 100))
+        if self.__reversed == False:
+            self.setPos(self.__file * 100, (7 - self.__rank) * 100)
+        else:
+            self.setPos((7 - self.__file) * 100, self.__rank * 100)
     
     def __set_pixmap(self) -> None:
         _resource = self.__resource

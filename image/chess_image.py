@@ -80,3 +80,4 @@ class ChessImage(QObject):
         self.highlight_circle = QPixmap(os.path.join(__misc_img_dir, 'highlight-circle.png'))
         self.promotion_bg_ver = QPixmap(os.path.join(__misc_img_dir, 'promotion-vertical.png'))
         self.promotion_bg_hor = QPixmap(os.path.join(__misc_img_dir, 'promotion-horizontal.png'))
+        self.reverse_board    = QPixmap(os.path.join(__misc_img_dir, 'reverse-board.png'))

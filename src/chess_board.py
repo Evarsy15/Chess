@@ -3,10 +3,11 @@ from enum import IntEnum
 from copy import deepcopy
 from PySide6.QtCore import (Qt, QObject, QPoint, QPointF, QRect, QRectF, QTimeLine, Signal)
 from PySide6.QtGui import QPixmap, QPainter, QTransform
-from PySide6.QtWidgets import (QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsItemAnimation)
+from PySide6.QtWidgets import (QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsItemAnimation, QLabel)
 
 from image import ChessImage
-from src import ChessPiece, PieceType, MoveType, PieceMove, PromotionItem
+from .chess_piece import ChessPiece, PieceType, MoveType, PieceMove
+from .promotion import PromotionItem
 
 class MoveDir(IntEnum):
     UP        = 0
@@ -18,6 +19,17 @@ class MoveDir(IntEnum):
     LEFTDOWN  = 6
     RIGHTDOWN = 7
     KNIGHT    = 8
+
+class ReverseBoardButton(QLabel):
+    def __init__(self, resource : ChessImage,
+                       parent : QObject | None):
+        super().__init__(parent)
+        self.setPixmap(resource.reverse_board)
+    
+    buttonPressed = Signal()
+
+    def mousePressEvent(self, event):
+        self.buttonPressed.emit()
 
 class ChessBoardScene(QGraphicsScene):
     def __init__(self, resource : ChessImage,
@@ -69,6 +81,7 @@ class ChessBoard(QObject):
         self.__init_chess_piece()
         self.__init_chess_board()
         self.__init_promotion_item()
+
         self.__connect_signal_and_slot()
     
     def setGeometry(self, rect : QRect | QRectF):
@@ -94,7 +107,7 @@ class ChessBoard(QObject):
         # When there is a piece in focus
         if self.__is_in_focus == True:
             # Get rank/file coordinate for clicked square
-            _new_rank, _new_file = ChessBoard.__get_square_from_pos(pos)
+            _new_rank, _new_file = ChessBoard.__get_square_from_pos(pos, self.__reversed)
             if self.debug_mode == True:
                 if (_new_rank, _new_file) != (-1, -1):
                     print(f'{ChessPiece.fileDict[_new_file]}{ChessPiece.rankDict[_new_rank]} square')
@@ -264,6 +277,7 @@ class ChessBoard(QObject):
         self.__turn = PieceType.WHITE      # Turn
         self.__is_in_focus = False         # Focus
         self.__piece_in_focus = None       # Piece in Focus
+        self.__reversed = False
         self.__item_highlight : list[QGraphicsPixmapItem] = []
         self.__move_history : list[PieceMove] = [] # Sequence of piece moves
         self.__promotion_mode = False      # Promotion mode
@@ -300,6 +314,13 @@ class ChessBoard(QObject):
         self.board_view.pieceClicked.connect(self.pieceClickHandler)
         self.board_view.promotionItemClicked.connect(self.promotionItemClickHandler)
         self.timeline.finished.connect(self.__process_after_move)
+
+    # Wrapper methods
+    def resetChessBoard(self) -> None:
+        self.__reset_chess_board()
+    
+    def reverseChessBoard(self) -> None:
+        self.__reverse_chess_board()
 
     # Methods for game management
 
@@ -736,6 +757,8 @@ class ChessBoard(QObject):
             # If so, add the move into available move list
             if self.__is_legal_move(_cand_move):
                 _avail_moves.append(_cand_move)
+            else:
+                del _cand_move
         
         # Handle special moves
         # Castling
@@ -796,8 +819,11 @@ class ChessBoard(QObject):
         return (len(self.avail_moves) > 0)
 
     def __get_item_from_square(self, rank : int, file : int) -> ChessPiece | None:
-        # if board is not reversed
-        _pos = QPoint( (file * 100 + 50), ((7 - rank) * 100 + 45))
+        if self.__reversed == False:
+            _pos = QPoint( (file * 100 + 50), ((7 - rank) * 100 + 45))
+        else:
+            _pos = QPoint( ((7 - file) * 100 + 50), (rank * 100 + 45))
+        
         _item = self.board_view.itemAt(_pos)
 
         # Check if there exists a piece on the square
@@ -807,7 +833,7 @@ class ChessBoard(QObject):
             return None
     
     @staticmethod
-    def __get_square_from_pos(pos : QPoint) -> tuple[int, int]:
+    def __get_square_from_pos(pos : QPoint, reversed : bool) -> tuple[int, int]:
         # Get coordinate of mouse-event 
         _x = pos.x(); _y = pos.y()
 
@@ -816,8 +842,13 @@ class ChessBoard(QObject):
             return (-1, -1)
 
         # Compute rank / file
-        _rank = 7 - (_y // 100)
-        _file = _x // 100
+        if reversed == False:
+            _rank = 7 - (_y // 100)
+            _file = _x // 100
+        else:
+            _rank = _y // 100
+            _file = 7 - (_x // 100)
+        
         return (_rank, _file)
     
     def __get_squares_on_path(self, movedir : MoveDir, color : PieceType,
@@ -1058,8 +1089,8 @@ class ChessBoard(QObject):
         return _candidate_square
 
     @staticmethod
-    def __get_pos_from_square(rank : int, file : int, isBoardReversed : bool = False) -> QPoint:
-        if isBoardReversed == False:
+    def __get_pos_from_square(rank : int, file : int, reversed : bool = False) -> QPoint:
+        if reversed == False:
             return QPoint(file * 100, (7 - rank) * 100)
         else:
             return QPoint((7 - file) * 100, rank * 100)
@@ -1081,7 +1112,7 @@ class ChessBoard(QObject):
                 _highlight.setPixmap(self.resource.highlight_circle)
             
             self.board_scene.addItem(_highlight)
-            _highlight.setPos(ChessBoard.__get_pos_from_square(_rank, _file))
+            _highlight.setPos(ChessBoard.__get_pos_from_square(_rank, _file, self.__reversed))
 
     def __is_castling_available(self, turn : PieceType, side : MoveType):
         match (turn, side):
@@ -1262,8 +1293,8 @@ class ChessBoard(QObject):
         _piece_to_move         = move.PieceToMove()
         _old_rank, _old_file   = move.OldSquare()
         _new_rank, _new_file   = move.NewSquare()
-        _old_pos_x, _old_pos_y = ChessPiece.getPosFromSquare(_old_rank, _old_file)
-        _new_pos_x, _new_pos_y = ChessPiece.getPosFromSquare(_new_rank, _new_file)
+        _old_pos_x, _old_pos_y = ChessPiece.getPosFromSquare(_old_rank, _old_file, self.__reversed)
+        _new_pos_x, _new_pos_y = ChessPiece.getPosFromSquare(_new_rank, _new_file, self.__reversed)
 
         self.animation.setItem(_piece_to_move)
         for i in range(101):
@@ -1278,8 +1309,8 @@ class ChessBoard(QObject):
             _piece_aux = move.PieceAux()
             _aux_old_rank, _aux_old_file = move.AuxSquare()[0]
             _aux_new_rank, _aux_new_file = move.AuxSquare()[1]
-            _aux_old_pos_x, _aux_old_pos_y = ChessPiece.getPosFromSquare(_aux_old_rank, _aux_old_file)
-            _aux_new_pos_x, _aux_new_pos_y = ChessPiece.getPosFromSquare(_aux_new_rank, _aux_new_file)
+            _aux_old_pos_x, _aux_old_pos_y = ChessPiece.getPosFromSquare(_aux_old_rank, _aux_old_file, self.__reversed)
+            _aux_new_pos_x, _aux_new_pos_y = ChessPiece.getPosFromSquare(_aux_new_rank, _aux_new_file, self.__reversed)
 
             self.aux_animation = QGraphicsItemAnimation(self)
             self.aux_animation.setItem(_piece_aux)
@@ -1303,14 +1334,83 @@ class ChessBoard(QObject):
             self.board_scene.removeItem(_item)
             del _item
         self.__item_highlight.clear()
+    
+    def __remove_move_history(self) -> None:
+        for _move in self.__move_history:
+            del _move
+        self.__move_history.clear()
 
     def __reset_chess_board(self) -> None:
-        # Unimplemented
-        pass
+        # Reset all pieces
+        self.item_white_king    .reset(0, 4);     self.item_black_king    .reset(7, 4)
+        self.item_white_queen   .reset(0, 3);     self.item_black_queen   .reset(7, 3)
+        self.item_white_rook_a  .reset(0, 0);     self.item_black_rook_a  .reset(7, 0)
+        self.item_white_rook_h  .reset(0, 7);     self.item_black_rook_h  .reset(7, 7)
+        self.item_white_bishop_c.reset(0, 2);     self.item_black_bishop_c.reset(7, 2)
+        self.item_white_bishop_f.reset(0, 5);     self.item_black_bishop_f.reset(7, 5)
+        self.item_white_knight_b.reset(0, 1);     self.item_black_knight_b.reset(7, 1)
+        self.item_white_knight_g.reset(0, 6);     self.item_black_knight_g.reset(7, 6)
+
+        self.item_white_pawn_a.reset(1, 0);       self.item_black_pawn_a.reset(6, 0)
+        self.item_white_pawn_b.reset(1, 1);       self.item_black_pawn_b.reset(6, 1)
+        self.item_white_pawn_c.reset(1, 2);       self.item_black_pawn_c.reset(6, 2)
+        self.item_white_pawn_d.reset(1, 3);       self.item_black_pawn_d.reset(6, 3)
+        self.item_white_pawn_e.reset(1, 4);       self.item_black_pawn_e.reset(6, 4)
+        self.item_white_pawn_f.reset(1, 5);       self.item_black_pawn_f.reset(6, 5)
+        self.item_white_pawn_g.reset(1, 6);       self.item_black_pawn_g.reset(6, 6)
+        self.item_white_pawn_h.reset(1, 7);       self.item_black_pawn_h.reset(6, 7)
+
+        # Activate every piece
+        self.active_white_piece.clear(); self.active_black_piece.clear()
+        self.active_white_piece = [
+            self.item_white_king,     self.item_white_queen,    self.item_white_rook_a,   self.item_white_rook_h,
+            self.item_white_bishop_c, self.item_white_bishop_f, self.item_white_knight_b, self.item_white_knight_g,
+            self.item_white_pawn_a,   self.item_white_pawn_b,   self.item_white_pawn_c,   self.item_white_pawn_d,
+            self.item_white_pawn_e,   self.item_white_pawn_f,   self.item_white_pawn_g,   self.item_white_pawn_h
+        ]
+        self.active_black_piece = [
+            self.item_black_king,     self.item_black_queen,    self.item_black_rook_a,   self.item_black_rook_h,
+            self.item_black_bishop_c, self.item_black_bishop_f, self.item_black_knight_b, self.item_black_knight_g,
+            self.item_black_pawn_a,   self.item_black_pawn_b,   self.item_black_pawn_c,   self.item_black_pawn_d,
+            self.item_black_pawn_e,   self.item_black_pawn_f,   self.item_black_pawn_g,   self.item_black_pawn_h
+        ]
+        
+        # Reset game status
+        self.__turn = PieceType.WHITE
+        self.__reversed = False
+        self.__free_focus()
+        self.__remove_move_history()
+        self.__promotion_mode = False
+        self.board_status.clear()
+        self.board_status = [
+            [PieceType.WHITE_ROOK, PieceType.WHITE_KNIGHT, PieceType.WHITE_BISHOP, PieceType.WHITE_QUEEN, 
+             PieceType.WHITE_KING, PieceType.WHITE_BISHOP, PieceType.WHITE_KNIGHT, PieceType.WHITE_ROOK],
+            [PieceType.WHITE_PAWN, PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,
+             PieceType.WHITE_PAWN, PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN,   PieceType.WHITE_PAWN],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY, 
+             PieceType.EMPTY,      PieceType.EMPTY,        PieceType.EMPTY,        PieceType.EMPTY],
+            [PieceType.BLACK_PAWN, PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,
+             PieceType.BLACK_PAWN, PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN,   PieceType.BLACK_PAWN],
+            [PieceType.BLACK_ROOK, PieceType.BLACK_KNIGHT, PieceType.BLACK_BISHOP, PieceType.BLACK_QUEEN, 
+             PieceType.BLACK_KING, PieceType.BLACK_BISHOP, PieceType.BLACK_KNIGHT, PieceType.BLACK_ROOK]
+        ]
 
     def __reverse_chess_board(self) -> None:
-        # Unimplemented
-        pass
+        self.__reversed = not self.__reversed
+
+        self.__free_focus()
+
+        for _white_piece in self.active_white_piece:
+            _white_piece.reverse()
+        
+        for _black_piece in self.active_black_piece:
+            _black_piece.reverse()
     
     def __set_focus_on_piece(self, piece : ChessPiece) -> None:
         # Remove previous highlight moves
@@ -1366,3 +1466,4 @@ class ChessBoard(QObject):
             _aux_new_rank, _aux_new_file = move.AuxSquare()[1]
             _piece_aux.setMoved()
             _piece_aux.setSquare(_aux_new_rank, _aux_new_file)
+

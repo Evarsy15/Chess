@@ -32,9 +32,13 @@ class ChessClock(QObject):
             print("ChessClock.setTimer() received negative time factor.")
             raise ValueError
         
+        self.unlimited = False
         self.clock_time = time
-        self.__display()
-        
+        self.__display_time()
+    
+    def setUnlimited(self):
+        self.unlimited = True
+        self.clock_lcd.display("--:--")
     
     # Signal
     signalTimeOver = Signal()
@@ -52,11 +56,11 @@ class ChessClock(QObject):
     @Slot()
     def __updateClock(self):
         self.clock_time -= 1
-        self.__display()
+        self.__display_time()
         if self.clock_time == 0:
             self.signalTimeOver.emit()
 
-    def __display(self):
+    def __display_time(self):
         __min = self.clock_time // 60
         __sec = self.clock_time % 60
         __display_str = f'{__min}:{__sec}' if __sec >= 10 else \
