@@ -1,8 +1,7 @@
-import os, math, time
+import math
 from enum import IntEnum
 from copy import deepcopy
 from PySide6.QtCore import (Qt, QObject, QPoint, QPointF, QRect, QRectF, QTimeLine, Signal)
-from PySide6.QtGui import QPixmap, QPainter, QTransform
 from PySide6.QtWidgets import (QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsItemAnimation, QLabel)
 
 from image import ChessImage

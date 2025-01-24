@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QImage, QPainter
 
 from image import ChessImage
 from .chess_board import ChessBoard, ReverseBoardButton
+from .chess_piece import PieceType
 from .chess_clock import ChessClock
 
 class MainWindow(QMainWindow):
@@ -15,6 +16,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.__load_resource()
         self.__setup_ui()
+        self.__connect_signal_and_slot()
     
     def __setup_ui(self):
         self.__init_main_window()
@@ -123,18 +125,23 @@ class MainWindow(QMainWindow):
         self.chess_board.show()
 
         # Chess Clocks
-        self.white_clock = ChessClock("white_clock", self)
-        self.black_clock = ChessClock("black_clock", self)
+        self.white_clock = ChessClock(600, 0, self)
+        self.black_clock = ChessClock(599, 0, self)
         
+        self.white_clock.setObjectName("white_clock")
         self.white_clock.setGeometry(QRect(850, 800, 125, 50))
-        self.white_clock.setTimer(600)
-
+        
+        self.black_clock.setObjectName("black_clock")
         self.black_clock.setGeometry(QRect(850, 50, 125, 50))
-        self.black_clock.setTimer(599)
 
         # Resign & Tie Buttons
+        self.start_button  = QPushButton("Start", self) 
         self.resign_button = QPushButton("Resign", self)
         self.tie_button    = QPushButton("Tie", self)
+
+        self.start_button.setObjectName("start_button")
+        self.start_button.setGeometry(QRect(850, 750, 75, 25))
+        self.start_button.setVisible(False)
 
         self.resign_button.setObjectName("resign_button")
         self.resign_button.setGeometry(QRect(1000, 825, 75, 25))
@@ -145,9 +152,15 @@ class MainWindow(QMainWindow):
         # Reverse Board Buttons
         self.reverse_board_button = ReverseBoardButton(self.__resource, self)
         self.reverse_board_button.setGeometry(QRect(850, 125, 100, 100))
-        self.reverse_board_button.buttonPressed.connect(self.__reverseBoard)
+        
 
         self.__reversed = False
+
+    def __connect_signal_and_slot(self):
+        self.chess_board.turnChanged.connect(self.__turn_change_handler)
+
+        self.start_button.pressed.connect(self.__start_game)
+        self.reverse_board_button.buttonPressed.connect(self.__reverse_board_handler)
 
     def __load_resource(self):
         self.__resource = ChessImage()
@@ -155,6 +168,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def __new_game(self):
         # Reset chess board
+        self.__turn = PieceType.WHITE
         self.__reversed = False
         self.chess_board.resetChessBoard()
 
@@ -176,12 +190,39 @@ class MainWindow(QMainWindow):
         else:
             self.white_clock.setUnlimited()
             self.black_clock.setUnlimited()
+        
+        self.start_button.setVisible(True)
 
     def __loadChessRecord(self):
         # Unimplemented
         pass
     
-    def __reverseBoard(self):
+    def __start_game(self):
+        self.__turn = PieceType.WHITE
+        self.white_clock.startClock()
+
+        self.start_button.setVisible(False)
+    
+    def __resign_handler(self):
+        pass
+
+    def __tie_handler(self):
+        pass
+
+    @Slot()
+    def __turn_change_handler(self):
+        # Change player turn
+        self.__turn = PieceType.BLACK if self.__turn == PieceType.WHITE else PieceType.WHITE
+
+        # Handle clock
+        if self.__turn == PieceType.WHITE:
+            self.black_clock.pauseClock()
+            self.white_clock.resumeClock()
+        else:
+            self.white_clock.pauseClock()
+            self.black_clock.resumeClock()
+
+    def __reverse_board_handler(self):
         self.__reversed = not self.__reversed
 
         _upper_clock_rect = QRect(850, 50, 125, 50)
@@ -196,3 +237,12 @@ class MainWindow(QMainWindow):
 
         # Change place of all active pieces in chess board
         self.chess_board.reverseChessBoard()
+    
+    def __game_over_handler(self):
+        pass
+
+    def __timeout_handler(self):
+        _clock = self.sender()
+
+        self.white_clock.pauseClock()
+        self.black_clock.pauseClock()

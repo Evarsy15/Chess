@@ -3,40 +3,51 @@ from PySide6.QtCore import (Qt, QObject, QRect, QRectF,
 from PySide6.QtWidgets import QWidget, QLCDNumber
 
 class ChessClock(QObject):
-    def __init__(self, objname : str = '', parent : QObject = None) :
+    def __init__(self, base : int,
+                       fischer : int = 0,
+                       parent : QObject = None) :
         super().__init__()
-        self.setObjectName(objname)
         self.clock_lcd = QLCDNumber(parent)
         self.clock_timer = QTimer(parent)
-        self.clock_time : int = 0
 
     # Initialize Clock Display
-        self.clock_lcd.setObjectName(objname + '_clock_lcd')
         self.clock_lcd.setSegmentStyle(QLCDNumber.Filled)
 
     # Initialize Inner-Timer
-        self.clock_timer.setObjectName(objname + '_clock_timer')
         self.clock_timer.setTimerType(Qt.PreciseTimer)
         self.clock_timer.stop()
         self.clock_timer.setInterval(1000) # 1 second
-
+    
+    # Initialize variables for clock management
+        self.launched = False
+        self.unlimited = False
+        self.base_time = 0
+        self.fischer_time = 0
 
     # Connect inside signal-slot
-        self.clock_timer.timeout.connect(self.__updateClock)
+        self.clock_timer.timeout.connect(self.__update_clock)
 
     def setGeometry(self, pos : QRect | QRectF):
         self.clock_lcd.setGeometry(pos)
 
-    def setTimer(self, time : int = 0):
+    def setObjectName(self, objname : str) -> None:
+        super().setObjectName(objname)
+        self.clock_lcd.setObjectName(objname + '_clock_lcd')
+        self.clock_timer.setObjectName(objname + '_clock_timer')
+
+
+    def setTimer(self, time : int = 0, fischer : int = 0):
         if time < 0:
             print("ChessClock.setTimer() received negative time factor.")
-            raise ValueError
+            exit()
         
+        self.launched = False
         self.unlimited = False
         self.clock_time = time
         self.__display_time()
     
     def setUnlimited(self):
+        self.launched = False
         self.unlimited = True
         self.clock_lcd.display("--:--")
     
@@ -44,21 +55,38 @@ class ChessClock(QObject):
     signalTimeOver = Signal()
 
     def startClock(self):
-        self.clock_timer.start()
+        if self.unlimited == False:
+            self.launched = True
+            self.clock_timer.start(1000)
     
     def pauseClock(self):
-        self.clock_timer.stop()
-        self.__remaining_time = self.clock_timer.remainingTime
+        if self.unlimited == False:
+            self.__remaining_time = self.clock_timer.remainingTime()
+            self.clock_timer.stop()
     
     def resumeClock(self):
-        self.clock_timer.start(self.__remaining_time)
+        if self.unlimited == False:
+            if self.launched == True:
+                self.clock_time += self.fischer_time
+                self.clock_timer.start(self.__remaining_time)
+            else:
+                self.startClock()
+    
+    def resetClock(self):
+        self.launched = False
+        self.clock_timer.stop()
+        self.clock_time = self.base_time
 
     @Slot()
-    def __updateClock(self):
+    def __update_clock(self):
         self.clock_time -= 1
         self.__display_time()
+
         if self.clock_time == 0:
             self.signalTimeOver.emit()
+        
+        self.clock_timer.start(1000)
+        
 
     def __display_time(self):
         __min = self.clock_time // 60
